@@ -1,0 +1,333 @@
+package ai.xelta.craft.command;
+
+import ai.xelta.craft.XeltaCraftMod;
+import ai.xelta.craft.api.XeltaApiClient;
+import ai.xelta.craft.blockentity.XeltaTerminalBlockEntity;
+import ai.xelta.craft.config.XeltaCraftConfig;
+import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.context.CommandContext;
+import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Style;
+import net.minecraft.world.level.block.entity.BlockEntity;
+
+/**
+ * /xeltacraft — in-game commands for XeltaCraft management.
+ *
+ *   /xeltacraft setkey <apikey>   — Store Xelta API key in config
+ *   /xeltacraft balance           — Check current credit balance
+ *   /xeltacraft status            — Show current generation status
+ *   /xeltacraft reset             — Reset targeted Terminal to IDLE
+ *   /xeltacraft help              — Show all commands
+ */
+public class XeltaCraftCommand {
+
+    public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+        dispatcher.register(
+            Commands.literal("xeltacraft")
+                .then(Commands.literal("settoken")
+                    .then(Commands.argument("token", StringArgumentType.greedyString())
+                        .executes(XeltaCraftCommand::setKey)))
+                .then(Commands.literal("setkey")   // alias for settoken
+                    .then(Commands.argument("apikey", StringArgumentType.greedyString())
+                        .executes(XeltaCraftCommand::setKey)))
+                .then(Commands.literal("setmodel")
+                    .then(Commands.argument("modelid", StringArgumentType.greedyString())
+                        .executes(XeltaCraftCommand::setModel)))
+                .then(Commands.literal("setrefvideo")
+                    .then(Commands.argument("url", StringArgumentType.greedyString())
+                        .executes(XeltaCraftCommand::setRefVideo)))
+                .then(Commands.literal("listvoices")
+                    .executes(XeltaCraftCommand::listVoices))
+                .then(Commands.literal("setvoice")
+                    .then(Commands.argument("voiceid", StringArgumentType.greedyString())
+                        .executes(XeltaCraftCommand::setVoice)))
+                .then(Commands.literal("balance")
+                    .executes(XeltaCraftCommand::checkBalance))
+                .then(Commands.literal("status")
+                    .executes(XeltaCraftCommand::checkStatus))
+                .then(Commands.literal("reset")
+                    .executes(XeltaCraftCommand::resetTerminal))
+                .then(Commands.literal("help")
+                    .executes(XeltaCraftCommand::showHelp))
+                .executes(XeltaCraftCommand::showHelp)
+        );
+    }
+
+    // ─── /xeltacraft setkey <apikey> ────────────────────────────────────────
+
+    private static int setKey(CommandContext<CommandSourceStack> ctx) {
+        // Accept both "token" arg (from settoken) and "apikey" arg (from setkey alias)
+        String key;
+        try { key = StringArgumentType.getString(ctx, "token").trim(); }
+        catch (Exception e) { key = StringArgumentType.getString(ctx, "apikey").trim(); }
+
+        if (key.length() < 8) {
+            ctx.getSource().sendFailure(Component.literal(
+                "❌ Token too short. Get your JWT token from xelta.ai → F12 → Local Storage → 'token'"));
+            return 0;
+        }
+        if (key.length() > 2000) {
+            ctx.getSource().sendFailure(Component.literal(
+                "❌ Token too long. Paste only the token value, not the entire localStorage."));
+            return 0;
+        }
+
+        XeltaCraftConfig.API_KEY.set(key);
+        XeltaCraftConfig.SPEC.save();
+
+        String masked = key.substring(0, Math.min(6, key.length())) + "••••••••" + key.substring(Math.max(0, key.length() - 4));
+        ctx.getSource().sendSuccess(
+            () -> Component.literal("✅ Auth token saved: ")
+                .append(Component.literal(masked).withStyle(ChatFormatting.GREEN)),
+            false
+        );
+        XeltaCraftMod.LOGGER.info("Auth token updated by {}", ctx.getSource().getTextName());
+        return 1;
+    }
+
+    // ─── /xeltacraft balance ────────────────────────────────────────────────
+
+    private static int checkBalance(CommandContext<CommandSourceStack> ctx) {
+        String apiKey = XeltaCraftConfig.API_KEY.get();
+
+        if (apiKey.isBlank()) {
+            ctx.getSource().sendFailure(Component.literal(
+                "❌ No API key set. Run: /xeltacraft setkey <key>"));
+            return 0;
+        }
+
+        ctx.getSource().sendSuccess(
+            () -> Component.literal("⏳ Fetching balance from Xelta...").withStyle(ChatFormatting.YELLOW),
+            false
+        );
+
+        ai.xelta.craft.api.XeltaCreditClient.getInstance().fetchBalance(apiKey)
+            .thenAccept(balance -> {
+                if (ctx.getSource().getServer() == null) return;
+                ctx.getSource().getServer().execute(() -> {
+                    if (balance < 0) {
+                        ctx.getSource().sendFailure(Component.literal(
+                            "❌ Could not fetch balance. Check your API key or internet."));
+                    } else {
+                        ctx.getSource().sendSuccess(
+                            () -> Component.literal("💳 Xelta balance: ")
+                                .append(Component.literal(balance + " credits")
+                                    .withStyle(balance < 50
+                                        ? ChatFormatting.RED
+                                        : ChatFormatting.GREEN)),
+                            false
+                        );
+                        if (balance < 50) {
+                            ctx.getSource().sendSuccess(
+                                () -> Component.literal("  ⚠ Low balance! ")
+                                    .append(Component.literal("[Buy Credits →]")
+                                        .withStyle(Style.EMPTY
+                                            .withColor(ChatFormatting.AQUA)
+                                            .withUnderlined(true)
+                                            .withClickEvent(new ClickEvent(
+                                                ClickEvent.Action.OPEN_URL,
+                                                "https://xelta.ai/pricing")))),
+                                false
+                            );
+                        }
+                    }
+                });
+            });
+
+        return 1;
+    }
+
+    // ─── /xeltacraft setmodel <modelid> ─────────────────────────────────
+
+    private static int setModel(CommandContext<CommandSourceStack> ctx) {
+        String modelId = StringArgumentType.getString(ctx, "modelid").trim();
+        if (modelId.isBlank()) {
+            ctx.getSource().sendFailure(Component.literal("❌ Model ID cannot be blank."));
+            return 0;
+        }
+        XeltaCraftConfig.IMAGE_MODEL_ID.set(modelId);
+        XeltaCraftConfig.SPEC.save();
+        ctx.getSource().sendSuccess(
+            () -> Component.literal("✅ Image model set to: ")
+                .append(Component.literal(modelId).withStyle(ChatFormatting.AQUA)),
+            false
+        );
+        return 1;
+    }
+
+    // ─── /xeltacraft setrefvideo <url> ──────────────────────────────────────
+
+    private static int setRefVideo(CommandContext<CommandSourceStack> ctx) {
+        String url = StringArgumentType.getString(ctx, "url").trim();
+        if (url.isBlank()) {
+            ctx.getSource().sendFailure(Component.literal("❌ URL cannot be blank."));
+            return 0;
+        }
+        XeltaCraftConfig.REFERENCE_VIDEO_URL.set(url);
+        XeltaCraftConfig.SPEC.save();
+        ctx.getSource().sendSuccess(
+            () -> Component.literal("✅ Reference video set to: ")
+                .append(Component.literal(url).withStyle(ChatFormatting.AQUA)),
+            false
+        );
+        return 1;
+    }
+
+    // ─── /xeltacraft listvoices ─────────────────────────────────────────────
+
+    private static int listVoices(CommandContext<CommandSourceStack> ctx) {
+        String apiKey = XeltaCraftConfig.API_KEY.get();
+        if (apiKey.isBlank()) {
+            ctx.getSource().sendFailure(Component.literal(
+                "❌ No API key set. Run: /xeltacraft setkey <key>"));
+            return 0;
+        }
+
+        ctx.getSource().sendSuccess(
+            () -> Component.literal("⏳ Fetching voices from GenAvatar...").withStyle(ChatFormatting.YELLOW),
+            false
+        );
+
+        ai.xelta.craft.api.XeltaGenAvatarClient.getInstance().fetchVoices(apiKey, "en", null)
+            .thenAccept(voices -> {
+                if (ctx.getSource().getServer() == null) return;
+                ctx.getSource().getServer().execute(() -> {
+                    if (voices.isEmpty()) {
+                        ctx.getSource().sendFailure(Component.literal(
+                            "❌ Could not fetch voices. Check your API key or internet."));
+                    } else {
+                        ctx.getSource().sendSuccess(() -> Component.literal("§bAvailable English Voices:"), false);
+                        for (ai.xelta.craft.api.XeltaGenAvatarClient.VoiceInfo v : voices) {
+                            ctx.getSource().sendSuccess(() -> Component.literal(v.toString()), false);
+                        }
+                        ctx.getSource().sendSuccess(() -> Component.literal("Set with: §e/xeltacraft setvoice <id>"), false);
+                    }
+                });
+            });
+        return 1;
+    }
+
+    // ─── /xeltacraft setvoice <voiceid> ─────────────────────────────────────
+
+    private static int setVoice(CommandContext<CommandSourceStack> ctx) {
+        String voiceId = StringArgumentType.getString(ctx, "voiceid").trim();
+        if (voiceId.isBlank()) {
+            ctx.getSource().sendFailure(Component.literal("❌ Voice ID cannot be blank."));
+            return 0;
+        }
+        XeltaCraftConfig.AVATAR_VOICE_ID.set(voiceId);
+        XeltaCraftConfig.SPEC.save();
+        ctx.getSource().sendSuccess(
+            () -> Component.literal("✅ Avatar voice set to: ")
+                .append(Component.literal(voiceId).withStyle(ChatFormatting.AQUA)),
+            false
+        );
+        return 1;
+    }
+
+    // ─── /xeltacraft status ─────────────────────────────────────────────────
+
+    private static int checkStatus(CommandContext<CommandSourceStack> ctx) {
+        if (!(ctx.getSource().getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) {
+            ctx.getSource().sendFailure(Component.literal("Must be run by a player."));
+            return 0;
+        }
+
+        // Find nearest Terminal block within 8 blocks
+        BlockPos playerPos = player.blockPosition();
+        var level = player.serverLevel();
+
+        for (int r = 0; r <= 8; r++) {
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    for (int dy = -3; dy <= 3; dy++) {
+                        BlockPos check = playerPos.offset(dx, dy, dz);
+                        BlockEntity be = level.getBlockEntity(check);
+                        if (be instanceof XeltaTerminalBlockEntity terminal) {
+                            String status = terminal.getStatus().name();
+                            String msg    = terminal.getStatusMessage();
+                            ctx.getSource().sendSuccess(
+                                () -> Component.literal("📡 Terminal at " + check + ": ")
+                                    .append(Component.literal("[" + status + "] ").withStyle(
+                                        switch (terminal.getStatus()) {
+                                            case DONE       -> ChatFormatting.GREEN;
+                                            case ERROR      -> ChatFormatting.RED;
+                                            case GENERATING -> ChatFormatting.YELLOW;
+                                            default         -> ChatFormatting.GRAY;
+                                        }))
+                                    .append(Component.literal(msg)),
+                                false
+                            );
+                            return 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        ctx.getSource().sendFailure(Component.literal(
+            "No Xelta Terminal found within 8 blocks."));
+        return 0;
+    }
+
+    // ─── /xeltacraft reset ──────────────────────────────────────────────────
+
+    private static int resetTerminal(CommandContext<CommandSourceStack> ctx) {
+        if (!(ctx.getSource().getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) {
+            ctx.getSource().sendFailure(Component.literal("Must be run by a player."));
+            return 0;
+        }
+
+        BlockPos playerPos = player.blockPosition();
+        var level = player.serverLevel();
+
+        for (int r = 0; r <= 8; r++) {
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    for (int dy = -3; dy <= 3; dy++) {
+                        BlockPos check = playerPos.offset(dx, dy, dz);
+                        BlockEntity be = level.getBlockEntity(check);
+                        if (be instanceof XeltaTerminalBlockEntity terminal) {
+                            terminal.resetToIdle();
+                            ctx.getSource().sendSuccess(
+                                () -> Component.literal("✅ Terminal at " + check + " reset to IDLE.")
+                                    .withStyle(ChatFormatting.GREEN),
+                                false
+                            );
+                            return 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        ctx.getSource().sendFailure(Component.literal("No Terminal found within 8 blocks."));
+        return 0;
+    }
+
+    // ─── /xeltacraft help ───────────────────────────────────────────────────
+
+    private static int showHelp(CommandContext<CommandSourceStack> ctx) {
+        ctx.getSource().sendSuccess(() -> Component.literal("""
+            §b§l── XeltaCraft Commands ──§r
+            §e/xeltacraft settoken <jwt>§r    — Set your Xelta auth token
+            §e/xeltacraft balance§r           — Check credit balance
+            §e/xeltacraft setrefvideo <url>§r — Set Motion Control video
+            §e/xeltacraft listvoices§r        — List Avatar TTS voices
+            §e/xeltacraft setvoice <id>§r     — Set Avatar TTS voice
+            §e/xeltacraft status§r            — Show Terminal status nearby
+            §e/xeltacraft reset§r             — Reset stuck Terminal to IDLE
+            §e/xeltacraft help§r              — Show this message
+            §7
+            §7Get your token: §bxelta.ai §7→ F12 → App → Local Storage → 'token'"""),
+            false
+        );
+        return 1;
+    }
+}

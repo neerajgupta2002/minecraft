@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    " G ",
+    "GPG",
+    " G "
+  ],
+  "key": {
+    "G": { "item": "minecraft:glass_pane" },
+    "P": { "item": "minecraft:paper" }
+  },
+  "result": {
+    "id": "xeltacraft:photo_slide",
+    "count": 4
+  }
+}

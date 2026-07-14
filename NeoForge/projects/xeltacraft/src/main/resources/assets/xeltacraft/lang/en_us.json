@@ -1,0 +1,20 @@
+{
+  "block.xeltacraft.xelta_terminal": "Xelta Terminal",
+
+  "item.xeltacraft.xelta_terminal":  "Xelta Terminal",
+  "item.xeltacraft.photo_slide":     "Photo Slide",
+  "item.xeltacraft.photo_slide.filled": "Photo Slide (Generated)",
+  "item.xeltacraft.film_roll":       "Film Roll",
+  "item.xeltacraft.film_roll.filled": "Film Roll (Generated)",
+
+  "itemGroup.xeltacraft":            "XeltaCraft",
+
+  "gui.xeltacraft.generate":         "Generate",
+  "gui.xeltacraft.prompt_hint":      "Describe your image...",
+  "gui.xeltacraft.status.idle":      "Ready",
+  "gui.xeltacraft.status.generating":"Generating...",
+  "gui.xeltacraft.status.done":      "Done!",
+  "gui.xeltacraft.status.error":     "Error",
+
+  "container.xeltacraft.xelta_terminal": "Xelta Terminal"
+}

@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube_all",
+  "textures": {
+    "all":   "xeltacraft:block/xelta_terminal_side",
+    "up":    "xeltacraft:block/xelta_terminal_top",
+    "down":  "xeltacraft:block/xelta_terminal_side",
+    "north": "xeltacraft:block/xelta_terminal_front",
+    "south": "xeltacraft:block/xelta_terminal_side",
+    "east":  "xeltacraft:block/xelta_terminal_side",
+    "west":  "xeltacraft:block/xelta_terminal_side"
+  }
+}

@@ -1,0 +1,21 @@
+# IDEs
+.vscode/
+.idea/
+*.iml
+*.iws
+
+# Environments
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+build/
+bin/
+out/
+.gradle/
+run/
+logs/
+
+# Java
+*.class

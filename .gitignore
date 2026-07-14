@@ -1,0 +1,28 @@
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Environments
+.env
+.env.*
+!.env.example
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+*.iws
+
+# Build artifacts
+build/
+bin/
+out/
+.gradle/
+run/
+logs/
+
+# Java
+*.class
+
+# Node
+node_modules/

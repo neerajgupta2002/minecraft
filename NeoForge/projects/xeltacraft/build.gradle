@@ -1,0 +1,94 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev' version '2.0.140'
+}
+
+version = '1.0.0'
+group = 'ai.xelta.craft'
+
+base {
+    archivesName = 'xeltacraft'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    withSourcesJar()
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['src/main/java']
+        }
+        resources {
+            srcDirs = ['src/main/resources']
+        }
+    }
+    client {
+        java {
+            srcDirs = ['src/client/java']
+        }
+        compileClasspath += main.compileClasspath + main.output
+        runtimeClasspath += main.runtimeClasspath + main.output
+    }
+}
+
+neoForge {
+    // NeoForge version for Minecraft 1.21.1
+    version = '21.1.172'
+
+    parchment {
+        mappingsVersion = '2024.11.17'
+        minecraftVersion = '1.21.1'
+    }
+
+    runs {
+        client {
+            client()
+            systemProperty 'neoforge.enabledGameTestNamespaces', 'xeltacraft'
+            // Client source set is automatically included via mods block below
+        }
+        server {
+            server()
+            programArgument '--nogui'
+        }
+    }
+
+    mods {
+        xeltacraft {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+            // Both source sets compiled and merged for the run
+        }
+    }
+}
+
+task runPipelineTest(type: JavaExec) {
+    group = "application"
+    description = "Run the Pipeline test"
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'ai.xelta.craft.pipeline.TestEnv'
+}
+
+dependencies {
+    // Gson is bundled with Minecraft - no need to add it
+    // OkHttp not needed - we use java.net.http.HttpClient (Java 11+ built-in)
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+jar {
+    manifest {
+        attributes([
+            'Specification-Title'     : 'xeltacraft',
+            'Specification-Vendor'    : 'xelta',
+            'Specification-Version'   : '1',
+            'Implementation-Title'    : project.name,
+            'Implementation-Version'  : project.jar.archiveVersion,
+            'Implementation-Vendor'   : 'xelta',
+            'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+        ])
+    }
+}
