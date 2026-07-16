@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/block",
+  "textures": {
+    "layer0": "xeltacraft:block/xelta_terminal_front"
+  }
+}

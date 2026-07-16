@@ -1,0 +1,90 @@
+plugins {
+    id 'java'
+    id 'eclipse'
+    id 'idea'
+    id 'net.neoforged.moddev' version '2.0.+'
+}
+
+version = '1.0.0'
+group = 'ai.xelta.craft'
+
+base {
+    archivesName = 'xeltacraft'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    withSourcesJar()
+}
+
+// ── Define the client sourceSet BEFORE neoForge references it ──────────────
+sourceSets {
+    client {
+        java {
+            srcDir 'src/client/java'
+        }
+        resources {
+            srcDir 'src/client/resources'
+        }
+        compileClasspath += main.compileClasspath + main.output
+        runtimeClasspath += main.runtimeClasspath + main.output
+    }
+}
+
+neoForge {
+    version = '21.1.172'
+
+    parchment {
+        mappingsVersion = '2024.11.17'
+        minecraftVersion = '1.21.1'
+    }
+
+    runs {
+        client {
+            client()
+            systemProperty 'neoforge.enabledGameTestNamespaces', 'xeltacraft'
+        }
+        server {
+            server()
+            programArgument '--nogui'
+            systemProperty 'neoforge.enabledGameTestNamespaces', 'xeltacraft'
+        }
+    }
+
+    mods {
+        'xeltacraft' {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+        }
+    }
+}
+
+repositories {
+    maven { url 'https://maven.neoforged.net/releases' }
+    maven { url 'https://libraries.minecraft.net' }
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'com.google.code.gson:gson:2.10.1'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs << '--enable-preview'
+    options.release = 21
+}
+
+jar {
+    from sourceSets.client.output
+    manifest {
+        attributes([
+            'Specification-Title'   : 'xeltacraft',
+            'Specification-Vendor'  : 'xelta',
+            'Specification-Version' : '1',
+            'Implementation-Title'  : project.name,
+            'Implementation-Version': project.jar.archiveVersion,
+            'Implementation-Vendor' : 'xelta'
+        ])
+    }
+}
