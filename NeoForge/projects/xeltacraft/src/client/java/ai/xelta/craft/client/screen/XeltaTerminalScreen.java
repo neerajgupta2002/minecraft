@@ -3,12 +3,16 @@ package ai.xelta.craft.client.screen;
 import ai.xelta.craft.blockentity.XeltaTerminalBlockEntity.GenerationMode;
 import ai.xelta.craft.menu.XeltaTerminalMenu;
 import ai.xelta.craft.network.C2SGeneratePacket;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.renderer.entity.ItemRenderer;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
@@ -324,8 +328,25 @@ public class XeltaTerminalScreen extends AbstractContainerScreen<XeltaTerminalMe
         int pby = y + CONTENT_Y + 4;
         int ph = (int)((PANEL_BOTTOM - CONTENT_Y) * 0.45); // take 45% of right panel height
         gfx.fill(rx+4, pby, rx+RP_W-4, pby+ph, C_PANEL2);
-        String npTxt = "No Preview Generated";
-        gfx.drawString(this.font, npTxt, rx + (RP_W - this.font.width(npTxt))/2, pby + ph/2 - 4, 0xFF2A3344, false);
+
+        ItemStack outputItem = menu.getSlot(XeltaTerminalMenu.SLOT_OUTPUT).getItem();
+        if (!outputItem.isEmpty()) {
+            int iconSize = Math.min(96, Math.min(RP_W - 16, ph - 16));
+            int iconX = rx + (RP_W - iconSize) / 2;
+            int iconY = pby + (ph - iconSize) / 2;
+            ItemRenderer renderer = this.minecraft.getItemRenderer();
+            PoseStack poseStack = new PoseStack();
+            poseStack.pushPose();
+            poseStack.translate(iconX, iconY, 100.0F);
+            float scale = iconSize / 16.0F;
+            poseStack.scale(scale, scale, 1.0F);
+            renderer.renderStatic(outputItem, ItemDisplayContext.GUI, 0, 0, poseStack,
+                this.minecraft.renderBuffers().bufferSource(), this.minecraft.level, 0);
+            poseStack.popPose();
+        } else {
+            String npTxt = "No Preview Generated";
+            gfx.drawString(this.font, npTxt, rx + (RP_W - this.font.width(npTxt))/2, pby + ph/2 - 4, 0xFF2A3344, false);
+        }
 
         // Actions
         int abY = pby + ph + 6;

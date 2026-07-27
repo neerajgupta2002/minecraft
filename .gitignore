@@ -22,3 +22,19 @@ logs/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Docs and Images
+doc/
+docs/
+images/
+img/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+
+# Testing
+test/
+tests/
+testing/

@@ -30,6 +30,10 @@ public class XeltaCraftConfig {
     public static final ModConfigSpec.ConfigValue<String> GEMINI_API_KEY;
     public static final ModConfigSpec.ConfigValue<String> GEMINI_MODEL;
 
+    public static String resolveGeminiApiKey() {
+        return GeminiApiKeyResolver.resolve(GEMINI_API_KEY.get());
+    }
+
     // ── Phase 4 — Photo Lab (Image Generation) ─────────────────────
     public static final ModConfigSpec.ConfigValue<String> PHOTO_LAB_URL;
 
@@ -169,7 +173,7 @@ public class XeltaCraftConfig {
 
         TIMEOUT_SECONDS = BUILDER
             .comment("HTTP request timeout in seconds.")
-            .defineInRange("timeout_seconds", 30, 5, 120);
+            .defineInRange("timeout_seconds", 60, 5, 120);
         MAX_RETRIES = BUILDER
             .comment("Maximum automatic retries on rate limit errors.")
             .defineInRange("max_retries", 3, 0, 10);

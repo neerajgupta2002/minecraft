@@ -79,7 +79,7 @@ public class GeminiArchitectClient {
             byte[] refImageBytes,
             java.util.function.Consumer<String> onProgress) {
 
-        String apiKey = XeltaCraftConfig.GEMINI_API_KEY.get();
+        String apiKey = XeltaCraftConfig.resolveGeminiApiKey();
         if (apiKey.isBlank()) {
             return CompletableFuture.failedFuture(
                 new IllegalStateException("Gemini API key not set. Run: /xeltacraft setgeminikey <key>"));
@@ -99,11 +99,12 @@ public class GeminiArchitectClient {
 
         String url = GEMINI_BASE + model + ":generateContent?key=" + apiKey;
 
+        int timeout = XeltaCraftConfig.TIMEOUT_SECONDS.get() + 30;
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create(url))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-            .timeout(Duration.ofSeconds(60))
+            .timeout(Duration.ofSeconds(timeout))
             .build();
 
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
