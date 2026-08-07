@@ -34,6 +34,9 @@ public class XeltaCraftConfig {
         return GeminiApiKeyResolver.resolve(GEMINI_API_KEY.get());
     }
 
+    // ── SuperXelta (SuperComputer) — main orchestrator ──────────────
+    public static final ModConfigSpec.ConfigValue<String> SUPER_XELTA_URL;
+
     // ── Phase 4 — Photo Lab (Image Generation) ─────────────────────
     public static final ModConfigSpec.ConfigValue<String> PHOTO_LAB_URL;
 
@@ -96,6 +99,14 @@ public class XeltaCraftConfig {
         BUILDER.pop();
 
         BUILDER.push("service_urls");
+
+        SUPER_XELTA_URL = BUILDER
+            .comment("Super Computer — the Nexus Deep Agent backend URL (see API.md).",
+                     "Single chat orchestrator: sessions, upload, chat/chat-stream, approvals,",
+                     "and credits all go through this base URL.",
+                     "Staging: https://xltnexus.stg3.xelta.ai — confirmed reachable (/health -> ok).",
+                     "Local dev alternative: http://127.0.0.1:8010")
+            .define("super_xelta_url", "https://xltnexus.stg3.xelta.ai");
 
         PHOTO_LAB_URL = BUILDER
             .comment("Phase 4 — Photo Lab: image generation + background AI",

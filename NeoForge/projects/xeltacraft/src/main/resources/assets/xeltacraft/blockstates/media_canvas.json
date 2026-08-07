@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "xeltacraft:block/media_canvas", "y": 0 },
+    "facing=east": { "model": "xeltacraft:block/media_canvas", "y": 90 },
+    "facing=south": { "model": "xeltacraft:block/media_canvas", "y": 180 },
+    "facing=west": { "model": "xeltacraft:block/media_canvas", "y": 270 }
+  }
+}

@@ -1,6 +1,7 @@
 package ai.xelta.craft.init;
 
 import ai.xelta.craft.XeltaCraftMod;
+import ai.xelta.craft.block.MediaCanvasBlock;
 import ai.xelta.craft.block.XeltaTerminalBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.SoundType;
@@ -24,6 +25,17 @@ public class ModBlocks {
                             .strength(3.5f, 6.0f)   // Hard like a computer, but breakable
                             .sound(SoundType.METAL)
                             .lightLevel(state -> 4)  // Subtle glow — it's running AI!
+                            .noOcclusion()
+            );
+
+    // The Media Canvas block — displays images and videos from Photo Slides / Film Rolls
+    public static final DeferredBlock<MediaCanvasBlock> MEDIA_CANVAS =
+            BLOCKS.registerBlock("media_canvas",
+                    MediaCanvasBlock::new,
+                    BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.SNOW)
+                            .strength(1.5f, 3.0f)
+                            .sound(SoundType.WOOD)
                             .noOcclusion()
             );
 }

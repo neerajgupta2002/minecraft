@@ -27,21 +27,33 @@ MAX_COLORS    = 6
 
 # --- DYNAMIC SYSTEM PROMPT (exact copy from GeminiArchitectClient.java) ------
 SYSTEM_PROMPT_TEMPLATE = """\
-You are a Minecraft block-placement architect agent.
-Your task is to generate a precise JSON block placement blueprint for a Minecraft structure.
+You are the intent understanding engine for the X-DAVE AI-Native Voxel Generation Engine.
+Your task is to analyze a natural language prompt and return a Semantic Object Graph.
 
 The structure is described as: "{prompt}"
 
-You must apply these exact user-defined constraints:
-- The structure footprint must fit within {block_size} x {block_size} blocks (x and z axes).
-- Use a maximum of {max_colors} distinct block types across the entire structure.
-- Keep the structure simple: maximum 4 layers tall (y=0 to y=3).
-- All blocks at y=0 form the floor. y=1 is the first wall layer. y=2 = second wall. y=3 = roof.
-- Use only valid Minecraft Java Edition 1.21.1 block IDs (e.g. minecraft:stone, minecraft:oak_planks).
-- Be concise — do NOT add more blocks than necessary for a recognisable structure.
+You must apply these constraints:
+- The structure footprint must fit within {block_size} x {block_size} blocks.
+- The overall scene should suggest a style.
+- The 'scale' of the scene should be determined (e.g. small, medium, large).
 
-Output ONLY a valid JSON array. Do NOT include markdown code blocks, explanations, or any other text.
-Format: [{{"x":0,"y":0,"z":0,"block":"minecraft:stone"}}, ...]"""
+Output ONLY a valid JSON object matching this schema:
+{{
+  "scene": {{
+    "objects": [
+      {{
+        "type": "object_type_name",
+        "position": "center/left/right/etc",
+        "scale": 1.0,
+        "material": "optional_material_hint"
+      }}
+    ],
+    "style": "style_name",
+    "scale": "overall_scale"
+  }}
+}}
+
+Do NOT output blocks or coordinates. Output ONLY valid JSON. Do NOT include markdown code blocks, explanations, or any other text."""
 
 # --- TEST LOGIC ---------------------------------------------------------------
 
@@ -146,33 +158,26 @@ def run_test():
         print(f"    ...{blueprint_text[-300:]}")
         sys.exit(1)
 
-    if not isinstance(blueprint, list):
-        print(f"[FAIL] Expected a JSON array, got: {type(blueprint).__name__}")
+    if not isinstance(blueprint, dict) or "scene" not in blueprint:
+        print(f"[FAIL] Expected a JSON object with 'scene', got: {type(blueprint).__name__}")
         sys.exit(1)
 
     # Report results
-    print(f"[PASS] Blueprint: {len(blueprint)} blocks placed")
+    print(f"[PASS] Parsed Semantic Object Graph")
     print()
 
-    block_types = set()
-    for entry in blueprint:
-        if "block" in entry:
-            block_types.add(entry["block"])
-
-    print(f"Block types used ({len(block_types)}/{MAX_COLORS} max):")
-    for b in sorted(block_types):
-        print(f"    {b}")
+    objects = blueprint["scene"].get("objects", [])
+    print(f"Found {len(objects)} semantic objects:")
+    for obj in objects:
+        print(f"    - {obj.get('type')} (pos: {obj.get('position')}, material: {obj.get('material')})")
 
     print()
     print("-" * 60)
     print("RESULT: PASS — Gemini API is working correctly!")
     print("        The mod will use this same call to place blocks in Minecraft.")
     print()
-    print("Sample entries (first 8):")
-    for entry in blueprint[:8]:
-        print(f"  {json.dumps(entry)}")
-    if len(blueprint) > 8:
-        print(f"  ... and {len(blueprint) - 8} more blocks")
+    print("Sample Output:")
+    print(json.dumps(blueprint, indent=2))
 
 if __name__ == "__main__":
     run_test()

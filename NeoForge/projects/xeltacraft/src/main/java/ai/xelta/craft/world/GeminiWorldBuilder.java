@@ -10,10 +10,19 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
+import ai.xelta.craft.generation.InventoryScanner;
+import ai.xelta.craft.generation.planning.CraftingDependencySolver;
+import ai.xelta.craft.generation.planning.MiningPlanner;
+import ai.xelta.craft.generation.planning.SmeltingPlanner;
+
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -49,21 +58,36 @@ public class GeminiWorldBuilder {
             String jsonBlueprint,
             ServerLevel serverLevel,
             BlockPos origin,
-            ServerPlayer player) {
+            ServerPlayer player,
+            int blockSize) {
 
         return CompletableFuture.supplyAsync(() -> {
             // Parse the JSON on a virtual thread
-            JsonArray entries = parseBlueprint(jsonBlueprint);
+            JsonArray entries = parseBlueprint(jsonBlueprint, blockSize);
             XeltaCraftMod.LOGGER.info("[GeminiBuilder] Parsed {} block entries from blueprint", entries.size());
-            return entries;
+            return clampToSafeZone(entries);
         }, Executors.newVirtualThreadPerTaskExecutor())
         .thenCompose(entries -> {
-            // Place blocks on the server thread
+            // Resource pre-flight and queueing both need the server thread
             CompletableFuture<Integer> result = new CompletableFuture<>();
 
             serverLevel.getServer().execute(() -> {
-                int placed = placeEntries(entries, serverLevel, origin, player);
-                result.complete(placed);
+                if (player != null && !player.isCreative()) {
+                    Map<Item, Integer> required = aggregateRequiredItems(entries);
+                    Map<Item, Integer> inventory = InventoryScanner.scanAllItems(player);
+                    CraftingDependencySolver.ResourcePlan<Item> plan =
+                            CraftingDependencySolver.resolve(serverLevel, required, inventory);
+
+                    if (!plan.isSufficient()) {
+                        reportShortfall(player, plan);
+                        result.complete(0);
+                        return;
+                    }
+                }
+
+                ai.xelta.craft.world.BuildStateManager.queueBuild(serverLevel, origin, entries, player);
+                XeltaCraftMod.LOGGER.info("[GeminiBuilder] Queued {} blocks for building at origin {}", entries.size(), origin.toShortString());
+                result.complete(entries.size());
             });
 
             return result;
@@ -71,37 +95,267 @@ public class GeminiWorldBuilder {
     }
 
     // =========================================================
-    // Parse JSON Blueprint
+    // Resource pre-flight (Recipe KB + Dependency Solver + Mining/Smelting advisories)
     // =========================================================
-    private JsonArray parseBlueprint(String jsonBlueprint) {
+    private Map<Item, Integer> aggregateRequiredItems(JsonArray entries) {
+        Map<Item, Integer> required = new HashMap<>();
+        for (JsonElement el : entries) {
+            if (!el.isJsonObject()) continue;
+            JsonObject entry = el.getAsJsonObject();
+            if (!entry.has("block")) continue;
+            String blockId = entry.get("block").getAsString();
+            BlockState state = resolveBlock(blockId);
+            if (state.isAir()) continue;
+            required.merge(state.getBlock().asItem(), 1, Integer::sum);
+        }
+        return required;
+    }
+
+    private void reportShortfall(ServerPlayer player, CraftingDependencySolver.ResourcePlan<Item> plan) {
+        player.sendSystemMessage(Component.literal(
+                "§cBuild aborted — missing materials for this blueprint:"));
+
+        for (MiningPlanner.MiningRecommendation rec : MiningPlanner.plan(plan.missingRawMaterials())) {
+            player.sendSystemMessage(Component.literal("§7  • §f" + rec.amountNeeded() + "x "
+                    + BuiltInRegistries.ITEM.getKey(rec.material()).getPath() + " §7— " + rec.note()));
+        }
+
+        for (SmeltingPlanner.SmeltingRecommendation rec :
+                SmeltingPlanner.plan(player.serverLevel(), plan.smeltingNeeded())) {
+            player.sendSystemMessage(Component.literal("§7  • Also smelt " + SmeltingPlanner.describe(rec)));
+        }
+
+        player.sendSystemMessage(Component.literal(
+                "§7Gather these and try again, or switch to Creative mode."));
+    }
+
+    // =========================================================
+    // Parse JSON Blueprint (Semantic Object Graph)
+    // =========================================================
+    private JsonArray parseBlueprint(String jsonBlueprint, int blockSize) {
         try {
-            // Attempt to parse. Gemini sometimes still wraps in an outer object.
-            JsonElement element = JsonParser.parseString(jsonBlueprint.trim());
-            if (element.isJsonArray()) {
-                return element.getAsJsonArray();
+            // Parse the Semantic Object Graph
+            JsonObject root = JsonParser.parseString(jsonBlueprint.trim()).getAsJsonObject();
+            JsonObject sceneObj = root.getAsJsonObject("scene");
+            if (sceneObj == null) {
+                throw new IllegalArgumentException("Missing 'scene' object in Gemini response");
             }
-            // Try to unwrap if it's an object with an array field
-            if (element.isJsonObject()) {
-                JsonObject obj = element.getAsJsonObject();
-                for (String key : new String[]{"blocks", "blueprint", "data", "placements"}) {
-                    if (obj.has(key) && obj.get(key).isJsonArray()) {
-                        return obj.getAsJsonArray(key);
+
+            // Extract style and scale
+            String style = sceneObj.has("style") ? sceneObj.get("style").getAsString() : "medieval";
+            String scaleStr = sceneObj.has("scale") ? sceneObj.get("scale").getAsString() : "medium";
+
+            // If Gemini populated the richer 'house' field, route through the parametric
+            // HouseGenerator (real per-wall door/window geometry) instead of the flat
+            // ArchitecturalGrammarEngine grammar. Falls back to the old path on any parse
+            // issue — this only changes behavior for structures Gemini explicitly detailed.
+            if (root.has("house") && root.get("house").isJsonObject()) {
+                ai.xelta.craft.generation.scenegraph.SceneGraph.Building building = tryParseHouse(root.getAsJsonObject("house"));
+                if (building != null) {
+                    XeltaCraftMod.LOGGER.info("[GeminiBuilder] Using parametric HouseGenerator ({}x{})", building.width(), building.depth());
+                    return ai.xelta.craft.generation.scenegraph.HouseGenerator.generate(building, style, blockSize);
+                }
+            }
+            if (root.has("tower") && root.get("tower").isJsonObject()) {
+                ai.xelta.craft.generation.scenegraph.SceneGraph.Tower tower = tryParseTower(root.getAsJsonObject("tower"));
+                if (tower != null) {
+                    XeltaCraftMod.LOGGER.info("[GeminiBuilder] Using parametric TowerGenerator (radius={}, height={})", tower.radius(), tower.height());
+                    return ai.xelta.craft.generation.scenegraph.TowerGenerator.generate(tower, style, blockSize);
+                }
+            }
+            if (root.has("castle") && root.get("castle").isJsonObject()) {
+                ai.xelta.craft.generation.scenegraph.SceneGraph.Castle castle = tryParseCastle(root.getAsJsonObject("castle"));
+                if (castle != null) {
+                    XeltaCraftMod.LOGGER.info("[GeminiBuilder] Using parametric CastleGenerator ({}x{})", castle.width(), castle.depth());
+                    return ai.xelta.craft.generation.scenegraph.CastleGenerator.generate(castle, style, blockSize);
+                }
+            }
+
+            // Parse objects
+            java.util.List<ai.xelta.craft.generation.SemanticModel.SemanticObject> objectsList = new java.util.ArrayList<>();
+            if (sceneObj.has("objects") && sceneObj.get("objects").isJsonArray()) {
+                JsonArray objectsArr = sceneObj.getAsJsonArray("objects");
+                for (JsonElement el : objectsArr) {
+                    if (el.isJsonObject()) {
+                        JsonObject obj = el.getAsJsonObject();
+                        String type = obj.has("type") ? obj.get("type").getAsString() : "cube";
+                        String position = obj.has("position") ? obj.get("position").getAsString() : "center";
+                        double objScale = obj.has("scale") ? obj.get("scale").getAsDouble() : 1.0;
+                        String material = obj.has("material") ? obj.get("material").getAsString() : style;
+                        
+                        objectsList.add(new ai.xelta.craft.generation.SemanticModel.SemanticObject(type, position, objScale, material));
                     }
                 }
             }
-            throw new IllegalArgumentException("Gemini blueprint is not a JSON array: "
-                + jsonBlueprint.substring(0, Math.min(200, jsonBlueprint.length())));
+
+            ai.xelta.craft.generation.SemanticModel.Scene scene = new ai.xelta.craft.generation.SemanticModel.Scene(objectsList, style, scaleStr);
+            
+            // Pass to Geometry Engine to generate blueprint array
+            return ai.xelta.craft.generation.VoxelEngine.generateBlueprint(scene, blockSize);
         } catch (Exception e) {
-            XeltaCraftMod.LOGGER.warn("[GeminiBuilder] Failed to parse blueprint: {}", e.getMessage());
+            XeltaCraftMod.LOGGER.warn("[GeminiBuilder] Failed to parse semantic graph: {}", e.getMessage());
             throw new RuntimeException("Blueprint parse failed: " + e.getMessage(), e);
         }
     }
 
+    /**
+     * Parses the optional 'house' field into a real {@link ai.xelta.craft.generation.scenegraph.SceneGraph.Building}.
+     * Returns {@code null} on any structural problem so the caller falls back to the old
+     * flat-grammar path instead of failing the whole generation over one malformed field.
+     */
+    private ai.xelta.craft.generation.scenegraph.SceneGraph.Building tryParseHouse(JsonObject houseObj) {
+        try {
+            int width = houseObj.has("width") ? houseObj.get("width").getAsInt() : 5;
+            int depth = houseObj.has("depth") ? houseObj.get("depth").getAsInt() : 5;
+            int wallHeight = houseObj.has("wallHeight") ? houseObj.get("wallHeight").getAsInt() : 3;
+            int pitchHeight = houseObj.has("pitchHeight") ? houseObj.get("pitchHeight").getAsInt() : 3;
+
+            java.util.List<ai.xelta.craft.generation.scenegraph.SceneGraph.Wall> walls = parseWalls(houseObj);
+
+            java.util.List<ai.xelta.craft.generation.scenegraph.SceneGraph.Room> rooms = new java.util.ArrayList<>();
+            rooms.add(new ai.xelta.craft.generation.scenegraph.SceneGraph.Room("main", width, depth, wallHeight, walls, 0, 0));
+
+            if (houseObj.has("annex") && houseObj.get("annex").isJsonObject()) {
+                ai.xelta.craft.generation.scenegraph.SceneGraph.Room annex = tryParseAnnex(houseObj.getAsJsonObject("annex"));
+                if (annex != null) rooms.add(annex);
+            }
+
+            ai.xelta.craft.generation.scenegraph.SceneGraph.RoofType roofType = parseRoofType(
+                houseObj.has("roofType") ? houseObj.get("roofType").getAsString() : null);
+            ai.xelta.craft.generation.scenegraph.SceneGraph.Roof roof =
+                new ai.xelta.craft.generation.scenegraph.SceneGraph.Roof(roofType, pitchHeight);
+
+            return new ai.xelta.craft.generation.scenegraph.SceneGraph.Building(width, depth, rooms, roof);
+        } catch (Exception e) {
+            XeltaCraftMod.LOGGER.warn("[GeminiBuilder] Failed to parse 'house' field, falling back to grammar engine: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Parses the optional 'annex' field into a second {@link ai.xelta.craft.generation.scenegraph.SceneGraph.Room},
+     * offset relative to the main house — this is what turns a house into a real L/T-shaped
+     * footprint instead of always being a single rectangle. Returns {@code null} on any
+     * structural problem so the caller falls back to a plain single-room house.
+     */
+    private ai.xelta.craft.generation.scenegraph.SceneGraph.Room tryParseAnnex(JsonObject annexObj) {
+        try {
+            int width = annexObj.has("width") ? annexObj.get("width").getAsInt() : 3;
+            int depth = annexObj.has("depth") ? annexObj.get("depth").getAsInt() : 3;
+            int wallHeight = annexObj.has("wallHeight") ? annexObj.get("wallHeight").getAsInt() : 3;
+            int offsetX = annexObj.has("offsetX") ? annexObj.get("offsetX").getAsInt() : 0;
+            int offsetZ = annexObj.has("offsetZ") ? annexObj.get("offsetZ").getAsInt() : 0;
+            java.util.List<ai.xelta.craft.generation.scenegraph.SceneGraph.Wall> walls = parseWalls(annexObj);
+
+            return new ai.xelta.craft.generation.scenegraph.SceneGraph.Room("annex", width, depth, wallHeight, walls, offsetX, offsetZ);
+        } catch (Exception e) {
+            XeltaCraftMod.LOGGER.warn("[GeminiBuilder] Failed to parse 'annex' field, building a plain single-room house: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** Shared by {@link #tryParseHouse} and {@link #tryParseAnnex} — both use the identical walls/openings shape. */
+    private java.util.List<ai.xelta.craft.generation.scenegraph.SceneGraph.Wall> parseWalls(JsonObject roomObj) {
+        java.util.List<ai.xelta.craft.generation.scenegraph.SceneGraph.Wall> walls = new java.util.ArrayList<>();
+        if (!roomObj.has("walls") || !roomObj.get("walls").isJsonArray()) return walls;
+
+        for (JsonElement el : roomObj.getAsJsonArray("walls")) {
+            if (!el.isJsonObject()) continue;
+            JsonObject wallObj = el.getAsJsonObject();
+
+            ai.xelta.craft.generation.scenegraph.SceneGraph.Direction facing;
+            try {
+                facing = ai.xelta.craft.generation.scenegraph.SceneGraph.Direction.valueOf(
+                    wallObj.has("facing") ? wallObj.get("facing").getAsString().toUpperCase() : "");
+            } catch (IllegalArgumentException e) {
+                continue; // unrecognized facing — skip this wall entry, the other sides still get built
+            }
+
+            java.util.List<ai.xelta.craft.generation.scenegraph.SceneGraph.Opening> openings = new java.util.ArrayList<>();
+            if (wallObj.has("openings") && wallObj.get("openings").isJsonArray()) {
+                for (JsonElement oEl : wallObj.getAsJsonArray("openings")) {
+                    if (!oEl.isJsonObject()) continue;
+                    JsonObject oObj = oEl.getAsJsonObject();
+                    try {
+                        ai.xelta.craft.generation.scenegraph.SceneGraph.OpeningType type =
+                            ai.xelta.craft.generation.scenegraph.SceneGraph.OpeningType.valueOf(
+                                oObj.has("type") ? oObj.get("type").getAsString().toUpperCase() : "");
+                        int offset = oObj.has("offset") ? oObj.get("offset").getAsInt() : 0;
+                        openings.add(new ai.xelta.craft.generation.scenegraph.SceneGraph.Opening(type, offset));
+                    } catch (IllegalArgumentException ignored) {
+                        // unrecognized opening type — skip just this opening
+                    }
+                }
+            }
+            walls.add(new ai.xelta.craft.generation.scenegraph.SceneGraph.Wall(facing, openings));
+        }
+        return walls;
+    }
+
+    /** Defaults to GABLE (the pre-existing behavior) for anything missing or unrecognized. */
+    private ai.xelta.craft.generation.scenegraph.SceneGraph.RoofType parseRoofType(String raw) {
+        if (raw == null || raw.isBlank()) return ai.xelta.craft.generation.scenegraph.SceneGraph.RoofType.GABLE;
+        try {
+            ai.xelta.craft.generation.scenegraph.SceneGraph.RoofType type =
+                ai.xelta.craft.generation.scenegraph.SceneGraph.RoofType.valueOf(raw.trim().toUpperCase());
+            // CONE is reserved for towers — a house asking for it falls back to GABLE.
+            return type == ai.xelta.craft.generation.scenegraph.SceneGraph.RoofType.CONE
+                ? ai.xelta.craft.generation.scenegraph.SceneGraph.RoofType.GABLE : type;
+        } catch (IllegalArgumentException e) {
+            return ai.xelta.craft.generation.scenegraph.SceneGraph.RoofType.GABLE;
+        }
+    }
+
+    /** Parses the optional 'tower' field. Returns {@code null} on any structural problem — see {@link #tryParseHouse}. */
+    private ai.xelta.craft.generation.scenegraph.SceneGraph.Tower tryParseTower(JsonObject towerObj) {
+        try {
+            int radius = towerObj.has("radius") ? towerObj.get("radius").getAsInt() : 3;
+            int height = towerObj.has("height") ? towerObj.get("height").getAsInt() : 10;
+            boolean crenellated = towerObj.has("crenellated") && towerObj.get("crenellated").getAsBoolean();
+            int roofHeight = towerObj.has("roofHeight") ? towerObj.get("roofHeight").getAsInt() : 3;
+            return new ai.xelta.craft.generation.scenegraph.SceneGraph.Tower(radius, height, crenellated, roofHeight);
+        } catch (Exception e) {
+            XeltaCraftMod.LOGGER.warn("[GeminiBuilder] Failed to parse 'tower' field, falling back to grammar engine: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** Parses the optional 'castle' field. Returns {@code null} on any structural problem — see {@link #tryParseHouse}. */
+    private ai.xelta.craft.generation.scenegraph.SceneGraph.Castle tryParseCastle(JsonObject castleObj) {
+        try {
+            int width = castleObj.has("width") ? castleObj.get("width").getAsInt() : 12;
+            int depth = castleObj.has("depth") ? castleObj.get("depth").getAsInt() : 12;
+            int wallHeight = castleObj.has("wallHeight") ? castleObj.get("wallHeight").getAsInt() : 4;
+            int towerRadius = castleObj.has("towerRadius") ? castleObj.get("towerRadius").getAsInt() : 3;
+            int towerHeight = castleObj.has("towerHeight") ? castleObj.get("towerHeight").getAsInt() : 12;
+            int gateOffset = castleObj.has("gateOffset") ? castleObj.get("gateOffset").getAsInt() : 0;
+
+            ai.xelta.craft.generation.scenegraph.SceneGraph.Direction gateWall;
+            try {
+                gateWall = ai.xelta.craft.generation.scenegraph.SceneGraph.Direction.valueOf(
+                    castleObj.has("gateWall") ? castleObj.get("gateWall").getAsString().toUpperCase() : "SOUTH");
+            } catch (IllegalArgumentException e) {
+                gateWall = ai.xelta.craft.generation.scenegraph.SceneGraph.Direction.SOUTH;
+            }
+
+            return new ai.xelta.craft.generation.scenegraph.SceneGraph.Castle(
+                width, depth, wallHeight, towerRadius, towerHeight, gateWall, gateOffset);
+        } catch (Exception e) {
+            XeltaCraftMod.LOGGER.warn("[GeminiBuilder] Failed to parse 'castle' field, falling back to grammar engine: {}", e.getMessage());
+            return null;
+        }
+    }
+
     // =========================================================
-    // Place blocks on server thread
+    // Safety clamp — prevent runaway builds or griefing
+    //
+    // Previously this check only existed inside placeEntries(), a method nothing ever
+    // called — the real placement path (BuildStateManager.queueBuild) had no bound at
+    // all beyond Minecraft's own world-height limits. Applied here instead, on the parsed
+    // JSON entries, so every placement path is covered.
     // =========================================================
-    private int placeEntries(JsonArray entries, ServerLevel level, BlockPos origin, ServerPlayer player) {
-        int placed = 0;
+    private JsonArray clampToSafeZone(JsonArray entries) {
+        JsonArray filtered = new JsonArray();
         int skipped = 0;
 
         for (JsonElement el : entries) {
@@ -112,32 +366,26 @@ public class GeminiWorldBuilder {
                 int relX = getInt(entry, "x");
                 int relY = getInt(entry, "y");
                 int relZ = getInt(entry, "z");
-                String blockId = getString(entry, "block");
 
-                // Safety clamp — prevent runaway builds or griefing
                 if (Math.abs(relX) > MAX_SAFE_RADIUS
                     || Math.abs(relZ) > MAX_SAFE_RADIUS
                     || relY < -5
                     || relY > MAX_BUILD_HEIGHT) {
-                    XeltaCraftMod.LOGGER.debug("[GeminiBuilder] Skipping out-of-bounds entry: x={} y={} z={}", relX, relY, relZ);
                     skipped++;
                     continue;
                 }
 
-                BlockState blockState = resolveBlock(blockId);
-                BlockPos worldPos = origin.offset(relX, relY, relZ);
-
-                level.setBlock(worldPos, blockState, Block.UPDATE_ALL);
-                placed++;
-
+                filtered.add(entry);
             } catch (Exception e) {
-                XeltaCraftMod.LOGGER.debug("[GeminiBuilder] Skipped entry due to error: {}", e.getMessage());
                 skipped++;
             }
         }
 
-        XeltaCraftMod.LOGGER.info("[GeminiBuilder] Placed={}, Skipped={}, Origin={}", placed, skipped, origin.toShortString());
-        return placed;
+        if (skipped > 0) {
+            XeltaCraftMod.LOGGER.warn("[GeminiBuilder] Clamped {} out-of-bounds block entries (safe zone: ±{} blocks, y ∈ [-5, {}])",
+                skipped, MAX_SAFE_RADIUS, MAX_BUILD_HEIGHT);
+        }
+        return filtered;
     }
 
     // =========================================================
@@ -177,12 +425,5 @@ public class GeminiWorldBuilder {
             return obj.get(key).getAsInt();
         }
         throw new IllegalArgumentException("Missing integer field: " + key);
-    }
-
-    private String getString(JsonObject obj, String key) {
-        if (obj.has(key) && obj.get(key).isJsonPrimitive()) {
-            return obj.get(key).getAsString();
-        }
-        throw new IllegalArgumentException("Missing string field: " + key);
     }
 }

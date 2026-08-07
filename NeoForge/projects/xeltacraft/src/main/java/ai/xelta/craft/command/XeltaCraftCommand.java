@@ -2,6 +2,7 @@ package ai.xelta.craft.command;
 
 import ai.xelta.craft.XeltaCraftMod;
 import ai.xelta.craft.api.XeltaApiClient;
+import ai.xelta.craft.api.auth.XeltaSessionManager;
 import ai.xelta.craft.blockentity.XeltaTerminalBlockEntity;
 import ai.xelta.craft.config.XeltaCraftConfig;
 import com.google.gson.JsonObject;
@@ -45,6 +46,9 @@ public class XeltaCraftCommand {
                 .then(Commands.literal("setkey")   // alias for settoken
                     .then(Commands.argument("apikey", StringArgumentType.greedyString())
                         .executes(XeltaCraftCommand::setKey)))
+                .then(Commands.literal("loadtoken") // read token from a file (bypasses 256-char chat limit)
+                    .then(Commands.argument("filepath", StringArgumentType.greedyString())
+                        .executes(XeltaCraftCommand::loadTokenFromFile)))
                 .then(Commands.literal("setgeminikey")
                     .then(Commands.argument("geminikey", StringArgumentType.greedyString())
                         .executes(XeltaCraftCommand::setGeminiKey)))
@@ -65,6 +69,11 @@ public class XeltaCraftCommand {
                     .executes(XeltaCraftCommand::checkStatus))
                 .then(Commands.literal("reset")
                     .executes(XeltaCraftCommand::resetTerminal))
+                .then(Commands.literal("confirm")
+                    .executes(XeltaCraftCommand::confirmBuild))
+                .then(Commands.literal("rate")
+                    .then(Commands.argument("stars", com.mojang.brigadier.arguments.IntegerArgumentType.integer(1, 5))
+                        .executes(XeltaCraftCommand::rateBuild)))
                 .then(Commands.literal("help")
                     .executes(XeltaCraftCommand::showHelp))
                 .executes(XeltaCraftCommand::showHelp)
@@ -101,6 +110,9 @@ public class XeltaCraftCommand {
         XeltaCraftConfig.API_KEY.set(key);
         XeltaCraftConfig.SPEC.save();
 
+        // Also inject into the live session manager so auth gate activates immediately
+        XeltaSessionManager.getInstance().setManualToken(key);
+
         String masked = key.substring(0, Math.min(6, key.length())) + "••••••••" + key.substring(Math.max(0, key.length() - 4));
         ctx.getSource().sendSuccess(
             () -> Component.literal("✅ Auth token saved: ")
@@ -108,6 +120,67 @@ public class XeltaCraftCommand {
             false
         );
         XeltaCraftMod.LOGGER.info("Auth token updated by {}", ctx.getSource().getTextName());
+        return 1;
+    }
+
+    // ─── /xeltacraft loadtoken <filepath> ─────────────────────────────────────
+    // Reads a JWT token from a plain-text file — bypasses Minecraft's 256-char
+    // chat input limit. Usage:
+    //   1. Save your token to a file, e.g.: C:\token.txt
+    //   2. /xeltacraft loadtoken C:\token.txt
+
+    private static int loadTokenFromFile(CommandContext<CommandSourceStack> ctx) {
+        String filePath = StringArgumentType.getString(ctx, "filepath").trim();
+
+        java.nio.file.Path path;
+        try {
+            path = java.nio.file.Path.of(filePath);
+        } catch (Exception e) {
+            ctx.getSource().sendFailure(Component.literal("❌ Invalid file path: " + filePath));
+            return 0;
+        }
+
+        if (!java.nio.file.Files.exists(path)) {
+            ctx.getSource().sendFailure(Component.literal(
+                "❌ File not found: " + filePath + 
+                "  |  Tip: Save your token to a .txt file first."));
+            return 0;
+        }
+
+        String key;
+        try {
+            key = java.nio.file.Files.readString(path).trim();
+        } catch (Exception e) {
+            ctx.getSource().sendFailure(Component.literal("❌ Could not read file: " + e.getMessage()));
+            return 0;
+        }
+
+        key = normalizeToken(key);
+
+        if (key.length() < 8) {
+            ctx.getSource().sendFailure(Component.literal(
+                "❌ Token too short — check the file contents."));
+            return 0;
+        }
+
+        TokenValidation validation = validateJwt(key);
+        if (!validation.valid()) {
+            ctx.getSource().sendFailure(Component.literal("❌ " + validation.message()));
+            return 0;
+        }
+
+        XeltaCraftConfig.API_KEY.set(key);
+        XeltaCraftConfig.SPEC.save();
+        XeltaSessionManager.getInstance().setManualToken(key);
+
+        String masked = key.substring(0, Math.min(6, key.length()))
+            + "••••••••" + key.substring(Math.max(0, key.length() - 4));
+        ctx.getSource().sendSuccess(
+            () -> Component.literal("✅ Token loaded from file: ")
+                .append(Component.literal(masked).withStyle(ChatFormatting.GREEN)),
+            false
+        );
+        XeltaCraftMod.LOGGER.info("Auth token loaded from file {} by {}", filePath, ctx.getSource().getTextName());
         return 1;
     }
 
@@ -407,6 +480,41 @@ public class XeltaCraftCommand {
 
         ctx.getSource().sendFailure(Component.literal("No Terminal found within 8 blocks."));
         return 0;
+    }
+
+    // ─── /xeltacraft confirm ────────────────────────────────────────────────
+
+    private static int confirmBuild(CommandContext<CommandSourceStack> ctx) {
+        if (!(ctx.getSource().getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) {
+            ctx.getSource().sendFailure(Component.literal("Must be run by a player."));
+            return 0;
+        }
+
+        boolean confirmed = ai.xelta.craft.world.BuildStateManager.confirmPendingJob(player);
+        if (confirmed) {
+            ctx.getSource().sendSuccess(
+                () -> Component.literal("✅ Massive build confirmed. Execution started.")
+                    .withStyle(ChatFormatting.GREEN),
+                false
+            );
+            return 1;
+        } else {
+            ctx.getSource().sendFailure(Component.literal("❌ You have no pending builds to confirm."));
+            return 0;
+        }
+    }
+
+    // ─── /xeltacraft rate <stars> ───────────────────────────────────────────
+
+    private static int rateBuild(CommandContext<CommandSourceStack> ctx) {
+        if (!(ctx.getSource().getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) {
+            ctx.getSource().sendFailure(Component.literal("Must be run by a player."));
+            return 0;
+        }
+
+        int stars = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "stars");
+        ai.xelta.craft.generation.FeedbackEngine.saveRating(player, stars);
+        return 1;
     }
 
     // ─── /xeltacraft help ───────────────────────────────────────────────────

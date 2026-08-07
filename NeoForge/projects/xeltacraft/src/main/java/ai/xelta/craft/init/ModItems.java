@@ -19,6 +19,10 @@ public class ModItems {
     public static final DeferredItem<BlockItem> XELTA_TERMINAL =
             ITEMS.registerSimpleBlockItem("xelta_terminal", ModBlocks.XELTA_TERMINAL);
 
+    // Block item for the Media Canvas
+    public static final DeferredItem<BlockItem> MEDIA_CANVAS =
+            ITEMS.registerSimpleBlockItem("media_canvas", ModBlocks.MEDIA_CANVAS);
+
     // Photo Slide — holds a generated AI image URL in NBT
     public static final DeferredItem<PhotoSlideItem> PHOTO_SLIDE =
             ITEMS.registerItem("photo_slide",

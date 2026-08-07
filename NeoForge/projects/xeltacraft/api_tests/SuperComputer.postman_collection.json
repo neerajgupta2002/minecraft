@@ -1,0 +1,173 @@
+{
+  "info": {
+    "name": "XeltaCraft — Super Computer (Nexus Deep Agent)",
+    "description": "Matches the API.md contract implemented in XeltaSuperComputerClient / SuperComputerWorkflow. Set the `base_url` and `token` collection variables before running.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://xltnexus.stg3.xelta.ai", "type": "string" },
+    { "key": "token", "value": "", "type": "string" },
+    { "key": "session_id", "value": "", "type": "string" },
+    { "key": "approval_id", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/health",
+        "auth": { "type": "noauth" }
+      }
+    },
+    {
+      "name": "Create Session",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const json = pm.response.json();",
+              "if (json.session_id) {",
+              "  pm.collectionVariables.set('session_id', json.session_id);",
+              "  console.log('session_id saved:', json.session_id);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/sessions",
+        "header": [{ "key": "Content-Type", "value": "application/json" }]
+      }
+    },
+    {
+      "name": "Get Session",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/sessions/{{session_id}}"
+      }
+    },
+    {
+      "name": "Upload Reference Image",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const json = pm.response.json();",
+              "console.log('upload url:', json.s3_url || json.path);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/upload",
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": [] }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Chat (blocking, auto-route)",
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/sessions/{{session_id}}/chat",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"content\": \"Generate a cozy medieval wooden house, minecraft style\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Chat (blocking, pinned skill)",
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/sessions/{{session_id}}/chat",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"content\": \"Modern Scandinavian living room\",\n  \"image\": \"https://example.com/room.png\",\n  \"skill\": \"home-design-generate\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Chat (stream, SSE)",
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/sessions/{{session_id}}/chat/stream",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "text/event-stream" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"content\": \"Generate a giant street ad for a coffee brand\",\n  \"skill\": \"street-ad-generate\"\n}"
+        },
+        "description": "Postman shows the raw SSE text as it arrives (click 'Send' then watch the response pane) but does not parse individual `data:` frames — use this to eyeball approval_required / delta / [DONE] frames, not for full automated assertions."
+      }
+    },
+    {
+      "name": "Respond to Approval",
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/sessions/{{session_id}}/approvals/{{approval_id}}/respond",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"decision\": \"approved\"\n}"
+        },
+        "description": "Set collection variable approval_id from the approval_required frame you saw in the stream response, then run this within ~240s."
+      }
+    },
+    {
+      "name": "Get Credits",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/credits"
+      }
+    },
+    {
+      "name": "Get Features",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/features"
+      }
+    },
+    {
+      "name": "Get History",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/history?limit=20&skip=0"
+      }
+    },
+    {
+      "name": "Rename Session",
+      "request": {
+        "method": "PATCH",
+        "url": "{{base_url}}/sessions/{{session_id}}",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Test session\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Delete Session",
+      "request": {
+        "method": "DELETE",
+        "url": "{{base_url}}/sessions/{{session_id}}"
+      }
+    }
+  ]
+}

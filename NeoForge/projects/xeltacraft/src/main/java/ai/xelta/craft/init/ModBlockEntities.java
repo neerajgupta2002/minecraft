@@ -1,6 +1,7 @@
 package ai.xelta.craft.init;
 
 import ai.xelta.craft.XeltaCraftMod;
+import ai.xelta.craft.blockentity.MediaCanvasBlockEntity;
 import ai.xelta.craft.blockentity.XeltaTerminalBlockEntity;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.level.block.entity.BlockEntityType;
@@ -16,6 +17,13 @@ public class ModBlockEntities {
             BLOCK_ENTITY_TYPES.register("xelta_terminal",
                     () -> BlockEntityType.Builder
                             .of(XeltaTerminalBlockEntity::new, ModBlocks.XELTA_TERMINAL.get())
+                            .build(null)
+            );
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<MediaCanvasBlockEntity>> MEDIA_CANVAS =
+            BLOCK_ENTITY_TYPES.register("media_canvas",
+                    () -> BlockEntityType.Builder
+                            .of(MediaCanvasBlockEntity::new, ModBlocks.MEDIA_CANVAS.get())
                             .build(null)
             );
 }

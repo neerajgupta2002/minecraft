@@ -1,0 +1,800 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XeltaCraft — Manual Test Guide</title>
+<style>
+  :root {
+    --bg: #12151a;
+    --bg-raised: #1a1e26;
+    --bg-panel: #171b22;
+    --line: #2b303c;
+    --line-soft: #22262f;
+    --ink: #e9e7dc;
+    --ink-dim: #9198a6;
+    --ink-faint: #5c6373;
+    --accent: #d68a3c;
+    --accent-ink: #1a1206;
+    --ok: #7fae6a;
+    --fail: #c1604c;
+    --warn: #c9a227;
+    --mono: ui-monospace, "Cascadia Mono", "Cascadia Code", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace;
+    --sans: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --content-w: 720px;
+    --wide-w: 1000px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #eef0ec;
+      --bg-raised: #ffffff;
+      --bg-panel: #15181d;
+      --line: #d7dbd2;
+      --line-soft: #e2e5dd;
+      --ink: #1b1e22;
+      --ink-dim: #565c63;
+      --ink-faint: #8b9098;
+      --accent: #b5691f;
+      --accent-ink: #fff8ee;
+      --ok: #4f7a48;
+      --fail: #a8462f;
+      --warn: #8f6c17;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12151a; --bg-raised: #1a1e26; --bg-panel: #171b22;
+    --line: #2b303c; --line-soft: #22262f;
+    --ink: #e9e7dc; --ink-dim: #9198a6; --ink-faint: #5c6373;
+    --accent: #d68a3c; --accent-ink: #1a1206;
+    --ok: #7fae6a; --fail: #c1604c; --warn: #c9a227;
+  }
+  :root[data-theme="light"] {
+    --bg: #eef0ec; --bg-raised: #ffffff; --bg-panel: #15181d;
+    --line: #d7dbd2; --line-soft: #e2e5dd;
+    --ink: #1b1e22; --ink-dim: #565c63; --ink-faint: #8b9098;
+    --accent: #b5691f; --accent-ink: #fff8ee;
+    --ok: #4f7a48; --fail: #a8462f; --warn: #8f6c17;
+  }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px;
+  }
+
+  .wrap { max-width: var(--wide-w); margin: 0 auto; padding: 56px 24px 120px; }
+  .col  { max-width: var(--content-w); }
+
+  header.masthead {
+    display: flex; flex-direction: column; gap: 14px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 32px; margin-bottom: 8px;
+  }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--accent); font-weight: 600;
+  }
+  h1 {
+    font-family: var(--mono); font-weight: 700; font-size: clamp(1.7rem, 3.2vw, 2.3rem);
+    margin: 0; letter-spacing: -0.01em; text-wrap: balance;
+  }
+  .subtitle { color: var(--ink-dim); font-size: 1.02rem; max-width: 640px; text-wrap: pretty; }
+  .meta-row {
+    display: flex; flex-wrap: wrap; gap: 8px 22px; font-family: var(--mono);
+    font-size: 12px; color: var(--ink-faint); margin-top: 4px;
+  }
+  .meta-row b { color: var(--ink-dim); font-weight: 600; }
+
+  nav.toc {
+    background: var(--bg-raised); border: 1px solid var(--line);
+    padding: 20px 24px; margin: 36px 0 56px;
+  }
+  nav.toc .eyebrow { display: block; margin-bottom: 10px; }
+  nav.toc ol {
+    columns: 2; column-gap: 32px; margin: 0; padding: 0; list-style: none;
+  }
+  nav.toc li { break-inside: avoid; margin-bottom: 7px; font-family: var(--mono); font-size: 13.5px; }
+  nav.toc li a { color: var(--ink); text-decoration: none; }
+  nav.toc li a:hover { color: var(--accent); }
+  nav.toc li span.n { color: var(--accent); margin-right: 8px; }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 18px; align-items: center;
+    font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+    background: var(--bg-raised); border: 1px solid var(--line);
+    padding: 12px 20px; margin: 0 0 56px;
+  }
+  .legend .item { display: flex; align-items: center; gap: 7px; }
+  .swatch { width: 12px; height: 12px; flex: none; border: 1px solid var(--line); }
+  .swatch.accent { background: var(--accent); border-color: var(--accent); }
+  .swatch.ok { background: var(--ok); border-color: var(--ok); }
+  .swatch.fail { background: var(--fail); border-color: var(--fail); }
+  .swatch.warn { background: var(--warn); border-color: var(--warn); }
+  .swatch.dim { background: transparent; border-color: var(--ink-faint); border-style: dashed; }
+
+  section.sheet {
+    padding: 52px 0; border-bottom: 1px solid var(--line-soft);
+    scroll-margin-top: 24px;
+  }
+  section.sheet:last-of-type { border-bottom: none; }
+  .sheet-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 4px; }
+  .sheet-num { font-family: var(--mono); color: var(--accent); font-weight: 700; font-size: 1.05rem; }
+  h2 {
+    font-family: var(--mono); font-size: 1.32rem; font-weight: 700; margin: 0;
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--mono); font-size: 1.02rem; font-weight: 600; color: var(--ink);
+    margin: 30px 0 10px;
+  }
+  h3 .sub-num { color: var(--accent); margin-right: 8px; }
+
+  p { max-width: var(--content-w); }
+  ul, ol.plain { max-width: var(--content-w); padding-left: 22px; }
+  li { margin-bottom: 4px; }
+  strong { color: var(--ink); }
+  code {
+    font-family: var(--mono); font-size: 0.88em; background: var(--line-soft);
+    padding: 0.1em 0.4em; border-radius: 2px;
+  }
+
+  .term {
+    font-family: var(--mono); font-size: 13.5px; line-height: 1.7;
+    background: var(--bg-panel); color: #e9e7dc;
+    border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    padding: 14px 18px; margin: 18px 0; max-width: var(--wide-w);
+    overflow-x: auto;
+  }
+  .term .ln { white-space: pre; }
+  .term .prompt { color: var(--accent); }
+  .term .cmt { color: #6b7280; }
+
+  .callout {
+    max-width: var(--content-w); margin: 18px 0; padding: 14px 18px;
+    background: var(--bg-raised); border: 1px solid var(--line);
+    border-left: 3px solid var(--ink-faint);
+  }
+  .callout .tag {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em;
+    text-transform: uppercase; font-weight: 700; display: block; margin-bottom: 6px;
+  }
+  .callout.ok   { border-left-color: var(--ok); }   .callout.ok .tag   { color: var(--ok); }
+  .callout.fail { border-left-color: var(--fail); } .callout.fail .tag { color: var(--fail); }
+  .callout.warn { border-left-color: var(--warn); } .callout.warn .tag { color: var(--warn); }
+  .callout.accent { border-left-color: var(--accent); } .callout.accent .tag { color: var(--accent); }
+  .callout p, .callout ul { max-width: none; }
+  .callout p:first-child, .callout .tag + p { margin-top: 0; }
+  .callout p:last-child, .callout ul:last-child { margin-bottom: 0; }
+
+  figure.fig {
+    max-width: var(--wide-w); margin: 26px 0 30px; padding: 0;
+  }
+  figure.fig .frame {
+    background: var(--bg-raised); border: 1px solid var(--line);
+    padding: 18px 10px; overflow-x: auto;
+  }
+  figure.fig svg { display: block; margin: 0 auto; max-width: 100%; height: auto; min-width: 560px; }
+  figure.fig figcaption {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+    margin-top: 10px; max-width: var(--content-w);
+  }
+
+  /* --- shared diagram vocabulary (applied via class on inline SVG shapes) --- */
+  .dg-box   { fill: var(--bg-panel); stroke: var(--line); stroke-width: 1.4; }
+  .dg-box-accent { fill: var(--accent); fill-opacity: 0.16; stroke: var(--accent); stroke-width: 1.6; }
+  .dg-box-ok     { fill: var(--ok); fill-opacity: 0.14; stroke: var(--ok); stroke-width: 1.6; }
+  .dg-box-fail   { fill: var(--fail); fill-opacity: 0.14; stroke: var(--fail); stroke-width: 1.6; }
+  .dg-box-warn   { fill: var(--warn); fill-opacity: 0.14; stroke: var(--warn); stroke-width: 1.6; }
+  .dg-box-dim    { fill: none; stroke: var(--ink-faint); stroke-width: 1.2; stroke-dasharray: 3 3; }
+  .dg-label { font-family: var(--mono); font-size: 12.5px; fill: var(--ink); font-weight: 600; }
+  .dg-label-dim { font-family: var(--mono); font-size: 12px; fill: var(--ink-faint); font-weight: 600; }
+  .dg-sub   { font-family: var(--mono); font-size: 10px; fill: var(--ink-dim); }
+  .dg-sub-dim { font-family: var(--mono); font-size: 10px; fill: var(--ink-faint); }
+  .dg-arrow { stroke: var(--ink-faint); stroke-width: 1.4; fill: none; }
+  .dg-arrow-accent { stroke: var(--accent); stroke-width: 1.6; fill: none; }
+  .dg-arrow-ok { stroke: var(--ok); stroke-width: 1.6; fill: none; }
+  .dg-arrow-fail { stroke: var(--fail); stroke-width: 1.6; fill: none; }
+  .dg-arrow-dashed { stroke: var(--ink-faint); stroke-width: 1.2; fill: none; stroke-dasharray: 4 4; }
+  .dg-arrlabel { font-family: var(--mono); font-size: 10px; fill: var(--ink-dim); }
+  .dg-arrlabel-dim { font-family: var(--mono); font-size: 9.5px; fill: var(--ink-faint); font-style: italic; }
+  .dg-tick { stroke: var(--accent); stroke-width: 1.6; }
+
+  table.ref {
+    border-collapse: collapse; width: 100%; max-width: var(--wide-w);
+    font-family: var(--mono); font-size: 13px; margin: 18px 0;
+  }
+  table.ref th, table.ref td {
+    text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line-soft);
+    font-variant-numeric: tabular-nums;
+  }
+  table.ref th {
+    color: var(--ink-dim); font-weight: 600; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 1px solid var(--line);
+  }
+  .tbl-wrap { overflow-x: auto; max-width: var(--wide-w); }
+
+  footer {
+    max-width: var(--wide-w); margin: 60px auto 0; padding-top: 24px;
+    border-top: 1px solid var(--line); font-family: var(--mono); font-size: 11.5px;
+    color: var(--ink-faint);
+  }
+
+  @media (max-width: 640px) {
+    nav.toc ol { columns: 1; }
+    .wrap { padding: 36px 16px 80px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <span class="eyebrow">XeltaCraft — NeoForge Mod · Internal QA</span>
+    <h1>Manual Test Guide</h1>
+    <p class="subtitle col">
+      Step-by-step verification for auth, Terminal generation, item delivery, and the new
+      resource-planning pipeline (Recipe Knowledge Base → Dependency Solver → Mining/Smelting
+      advisories). Every mechanism below is drawn as a flow before it's tested.
+    </p>
+    <div class="meta-row">
+      <span><b>Scope</b> Auth · Generation · World Build pipeline</span>
+      <span><b>Mode</b> Survival unless noted</span>
+      <span><b>Token expiry</b> 2026‑08‑16</span>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <span class="eyebrow">Contents</span>
+    <ol>
+      <li><span class="n">00</span><a href="#launch">Launch the client</a></li>
+      <li><span class="n">01</span><a href="#auth">Auth</a></li>
+      <li><span class="n">02</span><a href="#generation">Generation + item delivery</a></li>
+      <li><span class="n">03</span><a href="#preview">Preview panel — known gap</a></li>
+      <li><span class="n">04</span><a href="#canvas">Media Canvas</a></li>
+      <li><span class="n">05</span><a href="#worldbuild">World Build resource pipeline</a></li>
+      <li><span class="n">06</span><a href="#reference">Command reference</a></li>
+      <li><span class="n">07</span><a href="#automated">Automated coverage</a></li>
+      <li><span class="n">08</span><a href="#gaps">Known gaps — don't re-report</a></li>
+    </ol>
+  </nav>
+
+  <div class="legend">
+    <span class="eyebrow" style="margin-right:4px;">Diagram key</span>
+    <span class="item"><span class="swatch"></span>component</span>
+    <span class="item"><span class="swatch accent"></span>new / under test this pass</span>
+    <span class="item"><span class="swatch ok"></span>success path</span>
+    <span class="item"><span class="swatch fail"></span>abort / failure path</span>
+    <span class="item"><span class="swatch warn"></span>advisory-only</span>
+    <span class="item"><span class="swatch dim"></span>not exercised / not connected</span>
+  </div>
+
+  <!-- ================= 00 LAUNCH ================= -->
+  <section class="sheet" id="launch">
+    <div class="sheet-head"><span class="sheet-num">00</span><h2>Launch</h2></div>
+    <p class="col">Run the dev client from the mod project directory:</p>
+    <div class="term">
+<div class="ln"><span class="prompt">PS&gt;</span> cd NeoForge\projects\xeltacraft</div>
+<div class="ln"><span class="prompt">PS&gt;</span> .\gradlew.bat runClient</div>
+    </div>
+    <p class="col">
+      Use a <strong>Survival</strong> world for most tests below — several scenarios specifically
+      exercise inventory/material checks that Creative mode bypasses. Keep
+      <code>/gamemode creative</code> handy for §5.1.
+    </p>
+  </section>
+
+  <!-- ================= 01 AUTH ================= -->
+  <section class="sheet" id="auth">
+    <div class="sheet-head"><span class="sheet-num">01</span><h2>Auth</h2></div>
+    <p class="col">
+      The Terminal reads its token from a mod-config value, not from the in-game login screen —
+      the two are separate stores. This guide exercises the path the Terminal actually uses.
+    </p>
+
+    <figure class="fig">
+      <div class="frame">
+        <svg viewBox="0 0 920 300" role="img" aria-label="Two separate auth paths: the in-game login screen writes a session token that the Terminal never reads, while the loadtoken command writes directly into the config value the Terminal does read.">
+          <defs>
+            <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)"/>
+            </marker>
+            <marker id="a1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+            </marker>
+          </defs>
+
+          <!-- dim upper cluster: login screen path -->
+          <rect class="dg-box-dim" x="24" y="24" width="200" height="52"/>
+          <text class="dg-label-dim" x="124" y="46" text-anchor="middle">XeltaLoginScreen</text>
+          <text class="dg-sub-dim" x="124" y="62" text-anchor="middle">in-game GUI login</text>
+
+          <line class="dg-arrow-dashed" x1="224" y1="50" x2="300" y2="50" marker-end="url(#a1)"/>
+          <text class="dg-arrlabel-dim" x="262" y="42" text-anchor="middle">issues</text>
+
+          <rect class="dg-box-dim" x="300" y="24" width="210" height="52"/>
+          <text class="dg-label-dim" x="405" y="46" text-anchor="middle">XeltaSessionManager</text>
+          <text class="dg-sub-dim" x="405" y="62" text-anchor="middle">separate session token</text>
+
+          <text class="dg-arrlabel-dim" x="24" y="104" text-anchor="start">✕ not read by the Terminal — different store, skip for this guide</text>
+
+          <line x1="24" y1="126" x2="896" y2="126" stroke="var(--line)" stroke-width="1"/>
+
+          <!-- main tested flow -->
+          <rect class="dg-box" x="24" y="160" width="168" height="52"/>
+          <text class="dg-label" x="108" y="182" text-anchor="middle">token.txt</text>
+          <text class="dg-sub" x="108" y="198" text-anchor="middle">plaintext, local disk</text>
+
+          <line class="dg-arrow" x1="192" y1="186" x2="256" y2="186" marker-end="url(#a1)"/>
+          <text class="dg-arrlabel" x="224" y="178" text-anchor="middle">read by</text>
+
+          <rect class="dg-box" x="256" y="160" width="220" height="52"/>
+          <text class="dg-label" x="366" y="182" text-anchor="middle">/xeltacraft loadtoken</text>
+          <text class="dg-sub" x="366" y="198" text-anchor="middle">chat command, bypasses log</text>
+
+          <line class="dg-arrow-accent" x1="476" y1="186" x2="540" y2="186" marker-end="url(#a1a)"/>
+          <text class="dg-arrlabel" x="508" y="178" text-anchor="middle">writes</text>
+
+          <rect class="dg-box-accent" x="540" y="160" width="230" height="52"/>
+          <text class="dg-label" x="655" y="182" text-anchor="middle">XeltaCraftConfig.API_KEY</text>
+          <text class="dg-sub" x="655" y="198" text-anchor="middle">persisted mod config</text>
+
+          <line class="dg-arrow" x1="770" y1="176" x2="820" y2="140" marker-end="url(#a1)"/>
+          <line class="dg-arrow" x1="770" y1="196" x2="820" y2="232" marker-end="url(#a1)"/>
+
+          <rect class="dg-box" x="820" y="114" width="76" height="44"/>
+          <text class="dg-label" x="858" y="132" text-anchor="middle" font-size="10.5">Terminal</text>
+          <text class="dg-sub" x="858" y="146" text-anchor="middle" font-size="9">BlockEntity</text>
+
+          <rect class="dg-box" x="820" y="210" width="76" height="44"/>
+          <text class="dg-label" x="858" y="228" text-anchor="middle" font-size="10.5">/xeltacraft</text>
+          <text class="dg-sub" x="858" y="242" text-anchor="middle" font-size="9">balance, status</text>
+
+          <text class="dg-arrlabel" x="24" y="290" text-anchor="start">reads by → both consumers pull the same config value</text>
+        </svg>
+      </div>
+      <figcaption>Fig. 1 — Two independent auth stores. This guide uses the lower path (amber) because it's the one the Terminal actually reads.</figcaption>
+    </figure>
+
+    <div class="term">
+<div class="ln"><span class="prompt">&gt;</span> /xeltacraft loadtoken C:\Users\GCV\AppData\Local\Temp\claude\c--Users-GCV-Desktop-minecraft\e2db2065-a941-43e6-8d4e-e3e423793f58\scratchpad\xelta_token.txt</div>
+<div class="ln"><span class="prompt">&gt;</span> /xeltacraft balance</div>
+<div class="ln"><span class="prompt">&gt;</span> /xeltacraft status</div>
+    </div>
+
+    <div class="callout ok">
+      <span class="tag">Expected</span>
+      <p><code>balance</code> prints your real Xelta credit total. Delete the scratch token file once done — it's plaintext on disk. If <code>balance</code> fails with 401/403 after 2026‑08‑16, that's an expired token, not a bug.</p>
+    </div>
+  </section>
+
+  <!-- ================= 02 GENERATION ================= -->
+  <section class="sheet" id="generation">
+    <div class="sheet-head"><span class="sheet-num">02</span><h2>Generation + item delivery</h2></div>
+    <p class="col">
+      Confirms the full round trip: a prompt in the Terminal GUI becomes a real, retrievable
+      item in your inventory.
+    </p>
+
+    <figure class="fig">
+      <div class="frame">
+        <svg viewBox="0 0 1060 190" role="img" aria-label="Pipeline: Terminal GUI sends a packet to the block entity, which submits and polls an API client; on success an item stack is built, written to the output slot, and synced to the player inventory.">
+          <defs>
+            <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)"/>
+            </marker>
+            <marker id="a2ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--ok)"/>
+            </marker>
+          </defs>
+          <!-- 7 nodes, x = 8,158,308,458,608,758,908 ; w=126 -->
+          <g font-family="var(--mono)">
+            <rect class="dg-box" x="8" y="68" width="126" height="54"/>
+            <text class="dg-label" x="71" y="90" text-anchor="middle" font-size="11">Terminal</text>
+            <text class="dg-sub" x="71" y="104" text-anchor="middle">prompt + mode</text>
+
+            <line class="dg-arrow" x1="134" y1="95" x2="156" y2="95" marker-end="url(#a2)"/>
+            <rect class="dg-box" x="158" y="68" width="126" height="54"/>
+            <text class="dg-label" x="221" y="88" text-anchor="middle" font-size="10">C2SGenerate</text>
+            <text class="dg-label" x="221" y="100" text-anchor="middle" font-size="10">Packet</text>
+
+            <line class="dg-arrow" x1="284" y1="95" x2="306" y2="95" marker-end="url(#a2)"/>
+            <rect class="dg-box" x="308" y="68" width="126" height="54"/>
+            <text class="dg-label" x="371" y="88" text-anchor="middle" font-size="10">Terminal</text>
+            <text class="dg-label" x="371" y="100" text-anchor="middle" font-size="10">BlockEntity</text>
+
+            <line class="dg-arrow" x1="434" y1="95" x2="456" y2="95" marker-end="url(#a2)"/>
+            <rect class="dg-box" x="458" y="68" width="126" height="54"/>
+            <text class="dg-label" x="521" y="88" text-anchor="middle" font-size="10">API client</text>
+            <text class="dg-sub" x="521" y="102" text-anchor="middle">submit + poll</text>
+
+            <line class="dg-arrow-accent" x1="584" y1="95" x2="606" y2="95" marker-end="url(#a2)"/>
+            <text class="dg-arrlabel" x="595" y="60" text-anchor="middle">on success</text>
+            <rect class="dg-box-accent" x="608" y="68" width="126" height="54"/>
+            <text class="dg-label" x="671" y="88" text-anchor="middle" font-size="10">ItemStack built</text>
+            <text class="dg-sub" x="671" y="102" text-anchor="middle">PhotoSlideItem…</text>
+
+            <line class="dg-arrow" x1="734" y1="95" x2="756" y2="95" marker-end="url(#a2)"/>
+            <rect class="dg-box" x="758" y="68" width="126" height="54"/>
+            <text class="dg-label" x="821" y="88" text-anchor="middle" font-size="10">SLOT_OUTPUT</text>
+            <text class="dg-sub" x="821" y="102" text-anchor="middle">ItemStackHandler</text>
+
+            <line class="dg-arrow-ok" x1="884" y1="95" x2="906" y2="95" marker-end="url(#a2ok)"/>
+            <rect class="dg-box-ok" x="908" y="68" width="126" height="54"/>
+            <text class="dg-label" x="971" y="88" text-anchor="middle" font-size="10">Player</text>
+            <text class="dg-label" x="971" y="100" text-anchor="middle" font-size="10">inventory</text>
+          </g>
+          <text class="dg-arrlabel" x="530" y="160" text-anchor="middle">vanilla container sync makes the item visible client-side; shift-click / drag moves it out of the output slot</text>
+        </svg>
+      </div>
+      <figcaption>Fig. 2 — Generation to item delivery. The highlighted hop is where the generated result becomes a real item.</figcaption>
+    </figure>
+
+    <p class="col">
+      Give yourself a Terminal, place it, open the GUI, enter a prompt (e.g. <em>"a red sports
+      car"</em>), leave mode on <strong>Photo Lab</strong>, click Generate.
+    </p>
+    <div class="term">
+<div class="ln"><span class="prompt">&gt;</span> /give @p xeltacraft:xelta_terminal</div>
+    </div>
+
+    <div class="callout ok">
+      <span class="tag">Expected</span>
+      <p>A <code>Photo Slide</code> item appears in the output slot once the job completes — take it into your inventory and check its tooltip carries the image URL/prompt.</p>
+    </div>
+  </section>
+
+  <!-- ================= 03 PREVIEW GAP ================= -->
+  <section class="sheet" id="preview">
+    <div class="sheet-head"><span class="sheet-num">03</span><h2>Preview panel — known gap</h2></div>
+    <p class="col">Not a regression to chase — confirm the current (limited) behavior matches what's documented.</p>
+
+    <figure class="fig">
+      <div class="frame">
+        <svg viewBox="0 0 780 230" role="img" aria-label="Comparison: the actual preview panel only renders a generic item icon from the output stack, while the image URL to native texture path that would show a real thumbnail is not implemented.">
+          <defs>
+            <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)"/>
+            </marker>
+          </defs>
+          <text class="dg-label" x="8" y="24" font-size="11">ACTUAL</text>
+          <rect class="dg-box" x="8" y="36" width="190" height="48"/>
+          <text class="dg-label" x="103" y="56" text-anchor="middle" font-size="10.5">Output ItemStack</text>
+          <text class="dg-sub" x="103" y="70" text-anchor="middle">SLOT_OUTPUT</text>
+
+          <line class="dg-arrow" x1="198" y1="60" x2="256" y2="60" marker-end="url(#a3)"/>
+          <rect class="dg-box" x="258" y="36" width="220" height="48"/>
+          <text class="dg-label" x="368" y="56" text-anchor="middle" font-size="10.5">Preview panel</text>
+          <text class="dg-sub" x="368" y="70" text-anchor="middle">ItemRenderer.renderStatic</text>
+
+          <line class="dg-arrow" x1="478" y1="60" x2="536" y2="60" marker-end="url(#a3)"/>
+          <rect class="dg-box-accent" x="538" y="36" width="234" height="48"/>
+          <text class="dg-label" x="655" y="56" text-anchor="middle" font-size="10.5">Generic 3D item icon</text>
+          <text class="dg-sub" x="655" y="70" text-anchor="middle">or "No Preview Generated"</text>
+
+          <line x1="8" y1="112" x2="772" y2="112" stroke="var(--line)" stroke-width="1"/>
+
+          <text class="dg-label-dim" x="8" y="132" font-size="11">WISHED FOR — NOT IMPLEMENTED</text>
+          <rect class="dg-box-dim" x="8" y="146" width="190" height="48"/>
+          <text class="dg-label-dim" x="103" y="166" text-anchor="middle" font-size="10.5">Image URL</text>
+          <text class="dg-sub-dim" x="103" y="180" text-anchor="middle">stored on the item</text>
+
+          <line class="dg-arrow-dashed" x1="198" y1="170" x2="256" y2="170" marker-end="url(#a3)"/>
+          <rect class="dg-box-dim" x="258" y="146" width="220" height="48"/>
+          <text class="dg-label-dim" x="368" y="166" text-anchor="middle" font-size="10.5">NativeImage → DynamicTexture</text>
+          <text class="dg-sub-dim" x="368" y="180" text-anchor="middle">(the mechanism §04 uses)</text>
+
+          <line class="dg-arrow-dashed" x1="478" y1="170" x2="536" y2="170" marker-end="url(#a3)"/>
+          <rect class="dg-box-dim" x="538" y="146" width="234" height="48"/>
+          <text class="dg-label-dim" x="655" y="166" text-anchor="middle" font-size="10.5">Real thumbnail</text>
+          <text class="dg-sub-dim" x="655" y="180" text-anchor="middle">✕ no code path exists</text>
+
+          <text class="dg-arrlabel-dim" x="8" y="216" text-anchor="start">Gallery tab has the same gap — filename + badge, no thumbnail render.</text>
+        </svg>
+      </div>
+      <figcaption>Fig. 3 — What the Preview panel actually shows vs. what a thumbnail would require. The lower row doesn't exist in code.</figcaption>
+    </figure>
+
+    <div class="callout warn">
+      <span class="tag">Expected (current behavior, unchanged)</span>
+      <p>A generic item icon, or "No Preview Generated" text if the slot is empty. Don't file this as a regression — it's a documented gap this pass didn't touch.</p>
+    </div>
+  </section>
+
+  <!-- ================= 04 MEDIA CANVAS ================= -->
+  <section class="sheet" id="canvas">
+    <div class="sheet-head"><span class="sheet-num">04</span><h2>Media Canvas</h2></div>
+    <p class="col">The one place a real image preview genuinely works end to end.</p>
+
+    <figure class="fig">
+      <div class="frame">
+        <svg viewBox="0 0 940 150" role="img" aria-label="Pipeline: image URL is downloaded, decoded into a native image, uploaded as a dynamic texture, and rendered on the block face.">
+          <defs>
+            <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)"/>
+            </marker>
+            <marker id="a4ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--ok)"/>
+            </marker>
+          </defs>
+          <g>
+            <rect class="dg-box" x="8" y="50" width="168" height="50"/>
+            <text class="dg-label" x="92" y="70" text-anchor="middle" font-size="10.5">Image URL</text>
+            <text class="dg-sub" x="92" y="84" text-anchor="middle">on the placed item</text>
+
+            <line class="dg-arrow" x1="176" y1="75" x2="200" y2="75" marker-end="url(#a4)"/>
+            <rect class="dg-box" x="202" y="50" width="168" height="50"/>
+            <text class="dg-label" x="286" y="70" text-anchor="middle" font-size="10">AssetDownloader</text>
+            <text class="dg-sub" x="286" y="84" text-anchor="middle">.downloadAsset</text>
+
+            <line class="dg-arrow" x1="370" y1="75" x2="394" y2="75" marker-end="url(#a4)"/>
+            <rect class="dg-box" x="396" y="50" width="168" height="50"/>
+            <text class="dg-label" x="480" y="70" text-anchor="middle" font-size="10">NativeImage.read</text>
+            <text class="dg-sub" x="480" y="84" text-anchor="middle">decode bytes</text>
+
+            <line class="dg-arrow" x1="564" y1="75" x2="588" y2="75" marker-end="url(#a4)"/>
+            <rect class="dg-box" x="590" y="50" width="176" height="50"/>
+            <text class="dg-label" x="678" y="68" text-anchor="middle" font-size="9.5">DynamicTexture +</text>
+            <text class="dg-label" x="678" y="80" text-anchor="middle" font-size="9.5">TextureManager.register</text>
+
+            <line class="dg-arrow-ok" x1="766" y1="75" x2="790" y2="75" marker-end="url(#a4ok)"/>
+            <rect class="dg-box-ok" x="792" y="50" width="140" height="50"/>
+            <text class="dg-label" x="862" y="70" text-anchor="middle" font-size="10">Rendered on</text>
+            <text class="dg-label" x="862" y="82" text-anchor="middle" font-size="10">block face</text>
+          </g>
+          <text class="dg-arrlabel-dim" x="8" y="128" text-anchor="start">Video (.mp4) is skipped by design — no decoder — this pipeline is images-only.</text>
+        </svg>
+      </div>
+      <figcaption>Fig. 4 — Media Canvas texture pipeline. Every hop here is implemented and working.</figcaption>
+    </figure>
+
+    <div class="term">
+<div class="ln"><span class="prompt">&gt;</span> /give @p xeltacraft:media_canvas</div>
+    </div>
+    <div class="callout ok">
+      <span class="tag">Expected</span>
+      <p>Place it and feed it a generated image URL — the block face renders the downloaded image as a live texture. Skip <code>.mp4</code> URLs; video isn't supported here.</p>
+    </div>
+  </section>
+
+  <!-- ================= 05 WORLD BUILD ================= -->
+  <section class="sheet" id="worldbuild">
+    <div class="sheet-head"><span class="sheet-num">05</span><h2>World Build resource pipeline</h2></div>
+    <p class="col">
+      The main thing this pass added: a real pre-flight material check before a Gemini-generated
+      blueprint gets built, instead of discovering a shortfall mid-placement.
+    </p>
+
+    <figure class="fig">
+      <div class="frame">
+        <svg viewBox="0 0 900 640" role="img" aria-label="Prompt goes through Gemini to a block-list blueprint. The new stage aggregates required items and scans the player inventory, feeding the crafting dependency solver, which consults a recipe knowledge base. If sufficient, the build is queued and placed tick by tick. If not, mining and smelting planners produce a report and the build aborts before placing anything.">
+          <defs>
+            <marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)"/>
+            </marker>
+            <marker id="a5ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--ok)"/>
+            </marker>
+            <marker id="a5fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--fail)"/>
+            </marker>
+          </defs>
+
+          <rect class="dg-box" x="270" y="10" width="360" height="46"/>
+          <text class="dg-label" x="450" y="38" text-anchor="middle">Prompt — "a small medieval tower" (Build tab)</text>
+
+          <line class="dg-arrow" x1="450" y1="56" x2="450" y2="86" marker-end="url(#a5)"/>
+          <rect class="dg-box" x="270" y="88" width="360" height="46"/>
+          <text class="dg-label" x="450" y="116" text-anchor="middle">Gemini → semantic scene graph</text>
+
+          <line class="dg-arrow" x1="450" y1="134" x2="450" y2="164" marker-end="url(#a5)"/>
+          <rect class="dg-box" x="220" y="166" width="460" height="46"/>
+          <text class="dg-label" x="450" y="188" text-anchor="middle" font-size="11">VoxelEngine + ArchitecturalGrammarEngine</text>
+          <text class="dg-sub" x="450" y="202" text-anchor="middle">→ block-list blueprint</text>
+
+          <text class="eyebrow-svg dg-arrlabel" x="450" y="234" text-anchor="middle" fill="var(--accent)" font-weight="700">— new in this pass —</text>
+
+          <line class="dg-arrow-accent" x1="360" y1="212" x2="230" y2="256" marker-end="url(#a5)"/>
+          <line class="dg-arrow-accent" x1="540" y1="212" x2="670" y2="256" marker-end="url(#a5)"/>
+
+          <rect class="dg-box-accent" x="60" y="258" width="330" height="50"/>
+          <text class="dg-label" x="225" y="278" text-anchor="middle" font-size="10.5">Aggregate required items</text>
+          <text class="dg-sub" x="225" y="294" text-anchor="middle">per block type in the blueprint</text>
+
+          <rect class="dg-box-accent" x="510" y="258" width="330" height="50"/>
+          <text class="dg-label" x="675" y="278" text-anchor="middle" font-size="10.5">InventoryScanner.scanAllItems</text>
+          <text class="dg-sub" x="675" y="294" text-anchor="middle">player's real inventory</text>
+
+          <line class="dg-arrow-accent" x1="225" y1="308" x2="400" y2="344" marker-end="url(#a5)"/>
+          <line class="dg-arrow-accent" x1="675" y1="308" x2="500" y2="344" marker-end="url(#a5)"/>
+
+          <rect class="dg-box-accent" x="180" y="346" width="540" height="54"/>
+          <text class="dg-label" x="450" y="368" text-anchor="middle" font-size="11">CraftingDependencySolver.resolve()</text>
+          <text class="dg-sub" x="450" y="384" text-anchor="middle">consults RecipeKnowledgeBase — crafting + smelting index</text>
+
+          <line class="dg-arrow" x1="450" y1="400" x2="450" y2="428" marker-end="url(#a5)"/>
+          <rect class="dg-box" x="390" y="430" width="120" height="40" rx="1"/>
+          <text class="dg-label" x="450" y="454" text-anchor="middle" font-size="10.5">sufficient?</text>
+
+          <line class="dg-arrow-ok" x1="410" y1="460" x2="245" y2="498" marker-end="url(#a5ok)"/>
+          <text class="dg-arrlabel" x="300" y="480" text-anchor="middle" fill="var(--ok)">yes</text>
+          <line class="dg-arrow-fail" x1="490" y1="460" x2="655" y2="498" marker-end="url(#a5fail)"/>
+          <text class="dg-arrlabel" x="600" y="480" text-anchor="middle" fill="var(--fail)">no</text>
+
+          <rect class="dg-box-ok" x="60" y="500" width="330" height="50"/>
+          <text class="dg-label" x="225" y="520" text-anchor="middle" font-size="10.5">BuildStateManager.queueBuild</text>
+          <text class="dg-sub" x="225" y="536" text-anchor="middle">§5.5 — still uses legacy VirtualCrafter</text>
+
+          <rect class="dg-box-fail" x="510" y="500" width="330" height="50"/>
+          <text class="dg-label" x="675" y="520" text-anchor="middle" font-size="10.5">MiningPlanner + SmeltingPlanner</text>
+          <text class="dg-sub" x="675" y="536" text-anchor="middle">advisory only — nothing auto-mines</text>
+
+          <line class="dg-arrow-ok" x1="225" y1="550" x2="225" y2="574" marker-end="url(#a5ok)"/>
+          <rect class="dg-box-ok" x="60" y="576" width="330" height="46"/>
+          <text class="dg-label" x="225" y="604" text-anchor="middle" font-size="10.5">Blocks placed tick-by-tick (§5.3)</text>
+
+          <line class="dg-arrow-fail" x1="675" y1="550" x2="675" y2="574" marker-end="url(#a5fail)"/>
+          <rect class="dg-box-fail" x="510" y="576" width="330" height="46"/>
+          <text class="dg-label" x="675" y="596" text-anchor="middle" font-size="10">Chat: build aborted,</text>
+          <text class="dg-label" x="675" y="609" text-anchor="middle" font-size="10">missing materials listed (§5.2)</text>
+        </svg>
+      </div>
+      <figcaption>Fig. 5 — The full pre-flight pipeline. Amber = added this pass; the branch at the bottom is what §5.2–§5.4 exercise.</figcaption>
+    </figure>
+
+    <p class="col">
+      Switch to the <strong>Build</strong> tab (mode 4). The style word in your prompt drives
+      which blocks get requested — use <code>medieval</code> for the reproducible tests below.
+    </p>
+
+    <div class="tbl-wrap">
+      <table class="ref">
+        <thead><tr><th>Style keyword</th><th>wall_primary</th><th>roof_trim</th><th>roof_primary</th><th>pillar_block</th></tr></thead>
+        <tbody>
+          <tr><td>medieval</td><td>Stone Bricks</td><td>Cobblestone</td><td>Spruce Planks</td><td>Oak Log</td></tr>
+          <tr><td>steampunk</td><td>Copper Block</td><td>Deepslate Bricks</td><td>Dark Oak Planks</td><td>Iron Bars</td></tr>
+          <tr><td>modern</td><td>Quartz Block</td><td>White Concrete</td><td>Lt. Blue Glass</td><td>Smooth Stone</td></tr>
+          <tr><td>nature</td><td>Oak Leaves</td><td>Oak Log</td><td>Dirt</td><td>Grass Block</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3><span class="sub-num">5.1</span>Creative mode — pre-flight skipped entirely</h3>
+    <div class="term"><div class="ln"><span class="prompt">&gt;</span> /gamemode creative</div></div>
+    <div class="callout ok"><span class="tag">Expected</span><p>Build proceeds immediately, no material check of any kind.</p></div>
+
+    <h3><span class="sub-num">5.2</span>Survival, empty-handed — abort with a real report</h3>
+    <p class="col">Clear stone bricks / cobblestone / stone / spruce planks / oak logs / oak stairs from your inventory, then run <code>"a small medieval tower"</code>.</p>
+    <div class="term">
+<div class="ln"><span class="cmt">Build aborted — missing materials for this blueprint:</span></div>
+<div class="ln">  • 12x stone_bricks — Mine stone_bricks or cobblestone</div>
+<div class="ln">  • 4x oak_log — Mine oak_log</div>
+<div class="ln">  • 4x spruce_planks — No known ore/block source — obtain directly.</div>
+<div class="ln"><span class="cmt">Gather these and try again, or switch to Creative mode.</span></div>
+    </div>
+    <div class="callout fail"><span class="tag">Expected</span><p>No blocks placed. Counts vary with structure size — the point is a concrete, actionable list instead of a silent or mid-build failure.</p></div>
+
+    <h3><span class="sub-num">5.3</span>Survival, fully stocked — build proceeds</h3>
+    <div class="term">
+<div class="ln"><span class="prompt">&gt;</span> /give @p minecraft:stone_bricks 64</div>
+<div class="ln"><span class="prompt">&gt;</span> /give @p minecraft:cobblestone 64</div>
+<div class="ln"><span class="prompt">&gt;</span> /give @p minecraft:spruce_planks 64</div>
+<div class="ln"><span class="prompt">&gt;</span> /give @p minecraft:oak_log 64</div>
+<div class="ln"><span class="prompt">&gt;</span> /give @p minecraft:oak_stairs 64</div>
+    </div>
+    <div class="callout ok"><span class="tag">Expected</span><p>No abort message. Blocks place tick-by-tick as before; inventory visibly decreases.</p></div>
+
+    <h3><span class="sub-num">5.4</span>Survival — the crafting/smelting chain, not just a flat swap</h3>
+    <p class="col">
+      Vanilla: <code>stone_bricks</code> crafts from <code>4× stone</code>; <code>stone</code> itself
+      is <em>smelted</em> from <code>cobblestone</code>. Give only the raw material:
+    </p>
+    <div class="term"><div class="ln"><span class="prompt">&gt;</span> /give @p minecraft:cobblestone 64</div></div>
+    <p class="col">No stone, no stone_bricks, no oak_log, no spruce_planks. Run the tower prompt again.</p>
+    <div class="callout accent">
+      <span class="tag">Expected</span>
+      <p><code>stone_bricks</code> reads as covered — resolved through the crafting→smelting chain
+      down to the cobblestone you hold — while <code>oak_log</code>/<code>spruce_planks</code>
+      still show missing (unrelated to cobblestone). Stock those two alongside the cobblestone and
+      the whole plan should report sufficient, confirming the solver chained both recipe types
+      correctly instead of doing a flat 1:1 swap.</p>
+    </div>
+
+    <h3><span class="sub-num">5.5</span>Known limitation — read before filing a bug</h3>
+    <figure class="fig">
+      <div class="frame">
+        <svg viewBox="0 0 900 260" role="img" aria-label="The pre-flight solver and the legacy execution-time substitution are two separate, unsynchronized systems fed by the same missing block, and can disagree.">
+          <defs>
+            <marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)"/>
+            </marker>
+          </defs>
+          <rect class="dg-box" x="350" y="10" width="200" height="44"/>
+          <text class="dg-label" x="450" y="36" text-anchor="middle" font-size="10.5">Missing block, e.g. stone_bricks</text>
+
+          <line class="dg-arrow" x1="410" y1="54" x2="260" y2="96" marker-end="url(#a6)"/>
+          <line class="dg-arrow" x1="490" y1="54" x2="640" y2="96" marker-end="url(#a6)"/>
+
+          <rect class="dg-box-accent" x="80" y="98" width="360" height="60"/>
+          <text class="dg-label" x="260" y="120" text-anchor="middle" font-size="10.5">Pre-flight: CraftingDependencySolver</text>
+          <text class="dg-sub" x="260" y="136" text-anchor="middle">full recipe graph</text>
+          <text class="dg-sub" x="260" y="150" text-anchor="middle" fill="var(--ok)">→ says "sufficient ✓"</text>
+
+          <rect class="dg-box-fail" x="460" y="98" width="360" height="60"/>
+          <text class="dg-label" x="640" y="120" text-anchor="middle" font-size="10.5">Execution: VirtualCrafter</text>
+          <text class="dg-sub" x="640" y="136" text-anchor="middle">13-entry hardcoded table</text>
+          <text class="dg-sub" x="640" y="150" text-anchor="middle" fill="var(--fail)">→ may say "not found ✕"</text>
+
+          <line class="dg-arrow-dashed" x1="440" y1="128" x2="460" y2="128"/>
+          <text class="dg-arrlabel-dim" x="450" y="180" text-anchor="middle">not synchronized — two independent systems</text>
+
+          <text class="dg-arrlabel-dim" x="450" y="220" text-anchor="middle">a pre-flight "sufficient" can still be followed by a mid-build</text>
+          <text class="dg-arrlabel-dim" x="450" y="234" text-anchor="middle">"Build halted: Out of X" if VirtualCrafter doesn't know that chain</text>
+        </svg>
+      </div>
+      <figcaption>Fig. 6 — Two unmerged systems. If you see this during testing, it's this known gap, not a solver defect.</figcaption>
+    </figure>
+    <div class="callout warn">
+      <span class="tag">Not a bug</span>
+      <p>The §5.4 case happens to work at execution time too, because <code>VirtualCrafter</code> already hardcodes that exact pair. For a chain only the new solver knows, the pre-flight can pass and the build can still halt mid-way. Fixing it means routing <code>BuildStateManager</code>'s per-block substitution through <code>CraftingDependencySolver</code> instead of <code>VirtualCrafter</code> — flag it if you want that done.</p>
+    </div>
+  </section>
+
+  <!-- ================= 06 REFERENCE ================= -->
+  <section class="sheet" id="reference">
+    <div class="sheet-head"><span class="sheet-num">06</span><h2>Command reference</h2></div>
+    <div class="tbl-wrap">
+      <table class="ref">
+        <thead><tr><th>Command</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td>/xeltacraft loadtoken &lt;path&gt;</td><td>Auth without leaking the token to chat logs</td></tr>
+          <tr><td>/xeltacraft balance</td><td>Verify token + show credits</td></tr>
+          <tr><td>/xeltacraft status</td><td>Nearby Terminal's current state</td></tr>
+          <tr><td>/xeltacraft reset</td><td>Force a stuck Terminal back to IDLE</td></tr>
+          <tr><td>/xeltacraft confirm</td><td>Confirm a &gt;1000-block build (safety gate)</td></tr>
+          <tr><td>/xeltacraft help</td><td>Full command list</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= 07 AUTOMATED ================= -->
+  <section class="sheet" id="automated">
+    <div class="sheet-head"><span class="sheet-num">07</span><h2>Automated coverage</h2></div>
+    <p class="col">Already green — no need to re-run manually unless you touch this code.</p>
+    <div class="term">
+<div class="ln"><span class="prompt">PS&gt;</span> .\gradlew.bat compileJava compileClientJava   <span class="cmt"># main+client compile</span></div>
+<div class="ln"><span class="prompt">PS&gt;</span> .\gradlew.bat test                            <span class="cmt"># 9/9 unit tests, incl. 7 new solver cases</span></div>
+<div class="ln"><span class="prompt">PS&gt;</span> .\gradlew.bat build                           <span class="cmt"># full build</span></div>
+    </div>
+  </section>
+
+  <!-- ================= 08 GAPS ================= -->
+  <section class="sheet" id="gaps" style="border-bottom:none;">
+    <div class="sheet-head"><span class="sheet-num">08</span><h2>Known gaps — not in scope, don't re-report</h2></div>
+    <ul class="col">
+      <li>No image/video thumbnail in the Terminal Preview panel or Gallery tab (§03).</li>
+      <li>History tab has no filter/search/delete.</li>
+      <li>Uploads/downloads have no progress reporting or resume support.</li>
+      <li>No user-facing "retry failed job" action.</li>
+      <li>Auth split-brain: <code>XeltaLoginScreen</code> session vs <code>XeltaCraftConfig.API_KEY</code> are still two separate stores (§01 deliberately uses the config-based path).</li>
+      <li>Mining/Smelting planners are advisory-only by design — nothing mines or smelts automatically.</li>
+    </ul>
+  </section>
+
+  <footer>
+    XeltaCraft internal QA · generated for the resource-planning pass · diagrams reflect the codebase at time of writing, not a live spec
+  </footer>
+
+</div>
+</body>
+</html>

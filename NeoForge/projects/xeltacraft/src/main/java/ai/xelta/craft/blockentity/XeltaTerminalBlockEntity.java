@@ -88,7 +88,7 @@ public class XeltaTerminalBlockEntity extends BlockEntity implements MenuProvide
         if (!output.isEmpty() && output.getItem() instanceof AvatarScrollItem) return GenerationMode.GEN_AVATAR;
         if (!output.isEmpty() && output.getItem() instanceof FilmRollItem
             && !input.isEmpty() && input.getItem() instanceof PhotoSlideItem)  return GenerationMode.MOTION_CONTROL;
-        return GenerationMode.PHOTO_LAB;
+        return GenerationMode.WORLD_BUILD;
     }
 
     /** Minecraft-style suffix automatically appended to every Photo Lab prompt. */
@@ -151,17 +151,21 @@ public class XeltaTerminalBlockEntity extends BlockEntity implements MenuProvide
 
     /** Called by old packet handler (without explicit mode) — kept for compatibility. */
     public void handleGenerateRequest(ServerPlayer player, String prompt, UUID requestId) {
-        handleGenerateRequest(player, prompt, requestId, detectMode(), "", "", "");
+        handleGenerateRequest(player, prompt, requestId, detectMode(), "", null, "");
     }
 
     /** Legacy entry point — mode but no size, reference, or model. */
     public void handleGenerateRequest(ServerPlayer player, String prompt, UUID requestId, GenerationMode mode) {
-        handleGenerateRequest(player, prompt, requestId, mode, "", "", "");
+        handleGenerateRequest(player, prompt, requestId, mode, "", null, "");
     }
 
-    /** Primary entry point — mode, size, optional reference image, and AI model. */
+    /**
+     * Primary entry point — mode, size, optional reference image bytes, and AI model.
+     * The reference image (if any) arrives as raw bytes the client already read from its own
+     * disk and sent over the network — no server-side file/URL I/O needed for it at all.
+     */
     public void handleGenerateRequest(ServerPlayer player, String prompt, UUID requestId,
-                                      GenerationMode mode, String size, String referenceImagePath,
+                                      GenerationMode mode, String size, byte[] referenceImageBytes,
                                       String model) {
         // Guard: reject duplicate or concurrent requests
         if (status == GenerationStatus.GENERATING) {
@@ -191,21 +195,9 @@ public class XeltaTerminalBlockEntity extends BlockEntity implements MenuProvide
             finalPrompt = prompt + MINECRAFT_STYLE_SUFFIX;
         }
 
-        // Try to read the local reference image (singleplayer only)
-        byte[] refImageBytes = null;
-        if (referenceImagePath != null && !referenceImagePath.isBlank()) {
-            try {
-                java.io.File imgFile = new java.io.File(referenceImagePath);
-                if (imgFile.exists() && imgFile.isFile() && imgFile.length() < 20_971_520L) { // 20 MB cap
-                    refImageBytes = java.nio.file.Files.readAllBytes(imgFile.toPath());
-                    XeltaCraftMod.LOGGER.info("[Terminal] Loaded reference image: {} ({} bytes)",
-                        imgFile.getName(), refImageBytes.length);
-                } else {
-                    XeltaCraftMod.LOGGER.warn("[Terminal] Reference image not found or too large: {}", referenceImagePath);
-                }
-            } catch (Exception e) {
-                XeltaCraftMod.LOGGER.warn("[Terminal] Could not read reference image: {}", e.getMessage());
-            }
+        byte[] refImageBytes = (referenceImageBytes != null && referenceImageBytes.length > 0) ? referenceImageBytes : null;
+        if (refImageBytes != null) {
+            XeltaCraftMod.LOGGER.info("[Terminal] Reference image received: {} bytes", refImageBytes.length);
         }
 
         SizeSelection sizeSelection = normalizeSizeSelection(size);
@@ -563,16 +555,21 @@ public class XeltaTerminalBlockEntity extends BlockEntity implements MenuProvide
         }
 
         int maxColors   = ai.xelta.craft.api.GeminiArchitectClient.resolutionToMaxColors(resolutionPx);
-        BlockPos buildOrigin = player.blockPosition();
+        // Offset 5 blocks in front of the player so they don't get trapped
+        BlockPos buildOrigin = player.blockPosition().relative(player.getDirection(), 5);
 
         int finalBlockSize = blockSize;
         int finalResolution = resolutionPx;
+        
+        String terrainContext = ai.xelta.craft.generation.TerrainAnalysisEngine.analyzeTerrain(capturedLevel, buildOrigin, finalBlockSize);
+        String inventoryContext = ai.xelta.craft.generation.InventoryScanner.scanInventory(player);
+        String augmentedPrompt = prompt + " | " + terrainContext + " | " + inventoryContext;
 
         XeltaCraftMod.LOGGER.info("[WorldBuild] Starting Gemini generation: footprint={}x{}, maxColors={}, prompt='{}'",
-            blockSize, blockSize, maxColors, prompt.substring(0, Math.min(60, prompt.length())));
+            blockSize, blockSize, maxColors, augmentedPrompt.substring(0, Math.min(100, augmentedPrompt.length())));
 
         ai.xelta.craft.api.GeminiArchitectClient.getInstance()
-            .generateBlueprint(prompt, finalBlockSize, maxColors, refImageBytes, progressMsg -> {
+            .generateBlueprint(augmentedPrompt, finalBlockSize, maxColors, refImageBytes, progressMsg -> {
                 capturedLevel.getServer().execute(() -> {
                     XeltaTerminalBlockEntity self2 = selfRef.get();
                     if (self2 != null && !self2.isRemoved()) {
@@ -595,7 +592,7 @@ public class XeltaTerminalBlockEntity extends BlockEntity implements MenuProvide
                 return new ai.xelta.craft.world.GeminiWorldBuilder()
                     .buildFromBlueprint(jsonBlueprint,
                         (net.minecraft.server.level.ServerLevel) capturedLevel,
-                        buildOrigin, player);
+                        buildOrigin, player, finalBlockSize);
             })
             .thenAccept(count -> {
                 capturedLevel.getServer().execute(() -> {

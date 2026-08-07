@@ -21,6 +21,7 @@ public class ModCreativeTabs {
                             .icon(() -> ModItems.XELTA_TERMINAL.get().getDefaultInstance())
                             .displayItems((params, output) -> {
                                 output.accept(ModItems.XELTA_TERMINAL.get());
+                                output.accept(ModItems.MEDIA_CANVAS.get());
                                 output.accept(ModItems.PHOTO_SLIDE.get());
                                 output.accept(ModItems.FILM_ROLL.get());
                                 output.accept(ModItems.AVATAR_SCROLL.get());
