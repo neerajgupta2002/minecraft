@@ -534,42 +534,32 @@ public class XeltaTerminalBlockEntity extends BlockEntity implements MenuProvide
             WeakReference<XeltaTerminalBlockEntity> selfRef,
             Level capturedLevel, ServerPlayer player) {
 
-        // Parse normalized backend size field: "512x512,3x3".
+        // Parse normalized backend size field: "512x512,3x3" — only the slide-size half (the
+        // footprint) matters for World Build; the image-resolution half is Photo Lab's concern.
         String sizeParam = lastJobId; // set just before this call in handleGenerateRequest
 
-        int resolutionPx = 512;
-        int blockSize    = 3;
-
+        int blockSize = 3;
         if (sizeParam != null && !sizeParam.isBlank()) {
             String[] parts = sizeParam.split(",");
-            if (parts.length >= 1) {
-                // Parse resolution from e.g. "512x512"
-                try {
-                    resolutionPx = Integer.parseInt(parts[0].trim().split("x")[0]);
-                } catch (Exception ignored) {}
-            }
             if (parts.length >= 2) {
-                // Parse slide size from e.g. "5x5"
                 blockSize = ai.xelta.craft.api.GeminiArchitectClient.parseSlideSizeToInt(parts[1].trim());
             }
         }
 
-        int maxColors   = ai.xelta.craft.api.GeminiArchitectClient.resolutionToMaxColors(resolutionPx);
         // Offset 5 blocks in front of the player so they don't get trapped
         BlockPos buildOrigin = player.blockPosition().relative(player.getDirection(), 5);
 
         int finalBlockSize = blockSize;
-        int finalResolution = resolutionPx;
-        
+
         String terrainContext = ai.xelta.craft.generation.TerrainAnalysisEngine.analyzeTerrain(capturedLevel, buildOrigin, finalBlockSize);
         String inventoryContext = ai.xelta.craft.generation.InventoryScanner.scanInventory(player);
         String augmentedPrompt = prompt + " | " + terrainContext + " | " + inventoryContext;
 
-        XeltaCraftMod.LOGGER.info("[WorldBuild] Starting Gemini generation: footprint={}x{}, maxColors={}, prompt='{}'",
-            blockSize, blockSize, maxColors, augmentedPrompt.substring(0, Math.min(100, augmentedPrompt.length())));
+        XeltaCraftMod.LOGGER.info("[WorldBuild] Starting Gemini generation: footprint={}x{}, prompt='{}'",
+            blockSize, blockSize, augmentedPrompt.substring(0, Math.min(100, augmentedPrompt.length())));
 
         ai.xelta.craft.api.GeminiArchitectClient.getInstance()
-            .generateBlueprint(augmentedPrompt, finalBlockSize, maxColors, refImageBytes, progressMsg -> {
+            .generateBlueprint(augmentedPrompt, finalBlockSize, refImageBytes, progressMsg -> {
                 capturedLevel.getServer().execute(() -> {
                     XeltaTerminalBlockEntity self2 = selfRef.get();
                     if (self2 != null && !self2.isRemoved()) {

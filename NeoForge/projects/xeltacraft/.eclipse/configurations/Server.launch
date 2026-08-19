@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<launchConfiguration type="org.eclipse.jdt.launching.localJavaApplication">
+    <stringAttribute key="org.eclipse.jdt.launching.PROJECT_ATTR" value="xeltacraft"></stringAttribute>
+    <stringAttribute key="org.eclipse.jdt.launching.MAIN_TYPE" value="net.neoforged.devlaunch.Main"></stringAttribute>
+    <stringAttribute key="org.eclipse.jdt.launching.PROGRAM_ARGUMENTS" value=" @C:\\Users\\GCV\\Desktop\\minecraft\\NeoForge\\projects\\xeltacraft\\build\\moddev\\serverRunProgramArgs.txt"></stringAttribute>
+    <stringAttribute key="org.eclipse.jdt.launching.VM_ARGUMENTS" value=" @C:\\Users\\GCV\\Desktop\\minecraft\\NeoForge\\projects\\xeltacraft\\build\\moddev\\serverRunVmArgs.txt -Dfml.modFolders=xeltacraft%%C:\\Users\\GCV\\Desktop\\minecraft\\NeoForge\\projects\\xeltacraft\\bin\\main;xeltacraft%%C:\\Users\\GCV\\Desktop\\minecraft\\NeoForge\\projects\\xeltacraft\\bin\\client"></stringAttribute>
+    <stringAttribute key="org.eclipse.jdt.launching.WORKING_DIRECTORY" value="C:\Users\GCV\Desktop\minecraft\NeoForge\projects\xeltacraft\run"></stringAttribute>
+    <booleanAttribute key="org.eclipse.jdt.launching.STOP_IN_MAIN" value="false"></booleanAttribute>
+    <booleanAttribute key="org.eclipse.jdt.launching.ATTR_ATTR_USE_ARGFILE" value="false"></booleanAttribute>
+</launchConfiguration>

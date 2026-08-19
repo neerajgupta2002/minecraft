@@ -21,7 +21,6 @@ import java.util.concurrent.Executors;
  *
  * The dynamic system prompt is modelled after the reference Python integration:
  *   - {block_size}  → derived from the Slide Size selector (e.g. 5 from "5x5")
- *   - {max_colors}  → derived from the backend image-size default (512→8, 1024→16, etc.)
  *
  * API endpoint:
  *   POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
@@ -140,17 +139,27 @@ public class GeminiArchitectClient {
     private static final int MAX_ATTEMPTS = 3;
 
     /**
+     * Deliberately NOT tied to {@link XeltaCraftConfig#TIMEOUT_SECONDS} — that config is shared
+     * by every lightweight REST call in the mod (credits, sessions, ...) and is meant to be tuned
+     * short for those. Gemini calls are a different class of request: multimodal (image + text),
+     * structured-output schema, up to 64K output tokens. A reference-image request that legitimately
+     * needs ~45-90s was being cut off at exactly TIMEOUT_SECONDS+30 (60s with the default config),
+     * failing every image-attached build with "request timed out" while text-only prompts (which
+     * finish in 15-40s) happened to sneak under the same limit.
+     */
+    private static final int GEMINI_TIMEOUT_SECONDS = 180;
+
+    /**
      * Generates a Minecraft block blueprint using Gemini.
      *
      * @param prompt        Natural language description of the structure.
      * @param blockSize     Slide size (e.g. 5 from "5x5"). Controls footprint.
-     * @param maxColors     Max block types (derived from resolution slider: 512→8, 1024→16...).
      * @param refImageBytes Optional reference image bytes (base64-encoded in payload). Can be null.
      * @param onProgress    Callback for progress strings (called from a virtual thread).
      * @return CompletableFuture resolving to a raw JSON array string of block entries.
      */
     public CompletableFuture<String> generateBlueprint(
-            String prompt, int blockSize, int maxColors,
+            String prompt, int blockSize,
             byte[] refImageBytes,
             java.util.function.Consumer<String> onProgress) {
 
@@ -163,8 +172,7 @@ public class GeminiArchitectClient {
         String model = XeltaCraftConfig.GEMINI_MODEL.get();
         String systemPrompt = SYSTEM_PROMPT_TEMPLATE
             .replace("{prompt}", prompt)
-            .replace("{block_size}", String.valueOf(blockSize))
-            .replace("{max_colors}", String.valueOf(maxColors));
+            .replace("{block_size}", String.valueOf(blockSize));
 
         return attemptGenerate(model, apiKey, systemPrompt, refImageBytes, onProgress, 1, null);
     }
@@ -190,13 +198,12 @@ public class GeminiArchitectClient {
 
         String requestBody = buildRequestBody(effectivePrompt, refImageBytes);
         String url = GEMINI_BASE + model + ":generateContent?key=" + apiKey;
-        int timeout = XeltaCraftConfig.TIMEOUT_SECONDS.get() + 30;
 
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create(url))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-            .timeout(Duration.ofSeconds(timeout))
+            .timeout(Duration.ofSeconds(GEMINI_TIMEOUT_SECONDS))
             .build();
 
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
@@ -262,8 +269,8 @@ public class GeminiArchitectClient {
         // Gemini REST API format:
         // {
         //   "system_instruction": { "parts": [{ "text": "..." }] },
-        //   "generationConfig": { "temperature": 0.1 },
-        //   "contents": [{ "parts": [{ "text": "Generate the blueprint." }] }]
+        //   "generationConfig": { "temperature": 0.7, "responseMimeType": "application/json", "responseSchema": {...} },
+        //   "contents": [{ "parts": [{ "text": "..." }, { "inline_data": {...} }] }]
         // }
         JsonObject root = new JsonObject();
 
@@ -295,11 +302,14 @@ public class GeminiArchitectClient {
         textPart.addProperty("text", "Generate the Semantic Object Graph now. Output ONLY the JSON object.");
         contentParts.add(textPart);
 
-        // Optional reference image
+        // Optional reference image — the client only ever sends us raw bytes (no filename/extension
+        // travels over the network, see C2SGeneratePacket), so the actual format is sniffed from the
+        // file's magic bytes rather than hardcoded. This used to always declare "image/png" even for
+        // a picked .jpg/.webp file, mismatching Gemini's own decoding of the inline data.
         if (refImageBytes != null && refImageBytes.length > 0) {
             JsonObject imagePart = new JsonObject();
             JsonObject inlineData = new JsonObject();
-            inlineData.addProperty("mime_type", "image/png");
+            inlineData.addProperty("mime_type", detectImageMimeType(refImageBytes));
             inlineData.addProperty("data", Base64.getEncoder().encodeToString(refImageBytes));
             imagePart.add("inline_data", inlineData);
             contentParts.add(imagePart);
@@ -452,6 +462,21 @@ public class GeminiArchitectClient {
         return schema;
     }
 
+    /** Sniffs the image format from its magic bytes. Falls back to PNG if unrecognized. */
+    private static String detectImageMimeType(byte[] bytes) {
+        if (bytes.length >= 4 && (bytes[0] & 0xFF) == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) {
+            return "image/png";
+        }
+        if (bytes.length >= 3 && (bytes[0] & 0xFF) == 0xFF && (bytes[1] & 0xFF) == 0xD8 && (bytes[2] & 0xFF) == 0xFF) {
+            return "image/jpeg";
+        }
+        if (bytes.length >= 12 && bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F'
+                && bytes[8] == 'W' && bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P') {
+            return "image/webp";
+        }
+        return "image/png";
+    }
+
     // =========================================================
     // Extract generated text from Gemini response
     // =========================================================
@@ -468,7 +493,8 @@ public class GeminiArchitectClient {
             JsonArray parts = content.getAsJsonArray("parts");
             String text = parts.get(0).getAsJsonObject().get("text").getAsString().trim();
 
-            // Strip markdown fences if Gemini wraps them anyway (low-temp should prevent this)
+            // Strip markdown fences if Gemini wraps them anyway (responseMimeType=application/json
+            // should prevent this, but it's a cheap safety net rather than a hard guarantee)
             if (text.startsWith("```")) {
                 String[] lines = text.split("\n");
                 StringBuilder stripped = new StringBuilder();
@@ -494,19 +520,6 @@ public class GeminiArchitectClient {
             }
         } catch (Exception ignored) {}
         return responseBody.length() > 200 ? responseBody.substring(0, 200) : responseBody;
-    }
-
-    // =========================================================
-    // Utility: map resolution selector index → max_colors
-    // =========================================================
-    public static int resolutionToMaxColors(int resolutionPx) {
-        return switch (resolutionPx) {
-            case 512  -> 8;
-            case 1024 -> 16;
-            case 1536 -> 24;
-            case 2048 -> 32;
-            default   -> 8;
-        };
     }
 
     // =========================================================
