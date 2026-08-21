@@ -5,6 +5,7 @@ import ai.xelta.craft.item.AvatarScrollItem;
 import ai.xelta.craft.item.FilmRollItem;
 import ai.xelta.craft.item.MixboardItem;
 import ai.xelta.craft.item.PhotoSlideItem;
+import ai.xelta.craft.item.SchematicItem;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.neoforged.neoforge.registries.DeferredItem;
@@ -48,6 +49,14 @@ public class ModItems {
     public static final DeferredItem<MixboardItem> MIXBOARD =
             ITEMS.registerItem("mixboard",
                     props -> new MixboardItem(props.stacksTo(1)),
+                    new Item.Properties().stacksTo(1)
+            );
+
+    // Schematic — holds a pending build (.litematic import or AI-generated blueprint) to be
+    // placed wherever the player right-clicks, instead of building immediately.
+    public static final DeferredItem<SchematicItem> SCHEMATIC =
+            ITEMS.registerItem("schematic",
+                    props -> new SchematicItem(props.stacksTo(1)),
                     new Item.Properties().stacksTo(1)
             );
 }

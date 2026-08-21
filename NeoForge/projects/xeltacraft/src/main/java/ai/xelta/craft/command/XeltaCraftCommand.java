@@ -564,7 +564,7 @@ public class XeltaCraftCommand {
             return 0;
         }
 
-        SchematicImporter.importFromFile(filename, player.serverLevel(), player.blockPosition(), player);
+        SchematicImporter.importFromFile(filename, player.serverLevel(), player);
         return 1;
     }
 
@@ -581,7 +581,7 @@ public class XeltaCraftCommand {
             §e/xeltacraft status§r            — Show Terminal status nearby
             §e/xeltacraft reset§r             — Reset stuck Terminal to IDLE
             §e/xeltacraft schematics§r        — List .litematic files ready to import
-            §e/xeltacraft importschematic <file>§r — Build a .litematic at your position
+            §e/xeltacraft importschematic <file>§r — Get a Schematic item for a .litematic
             §e/xeltacraft help§r              — Show this message
             §7
             §7Get your token: §bxelta.ai §7→ F12 → App → Local Storage → 'token'"""),

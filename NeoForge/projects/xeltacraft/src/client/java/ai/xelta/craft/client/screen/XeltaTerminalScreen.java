@@ -480,6 +480,8 @@ public class XeltaTerminalScreen extends AbstractContainerScreen<XeltaTerminalMe
                 String loadingTxt = "Loading preview...";
                 gfx.drawString(this.font, loadingTxt, rx + (RP_W - this.font.width(loadingTxt))/2, pby + ph/2 - 4, 0xFF556677, false);
             }
+        } else if (!outputItem.isEmpty() && outputItem.getItem() instanceof ai.xelta.craft.item.SchematicItem) {
+            renderSchematicGhostPreview(gfx, outputItem, rx + 4, pby, RP_W - 8, ph);
         } else if (!outputItem.isEmpty()) {
             // Non-image output (video, avatar, mix) — no decoder available, fall back to the item icon.
             int iconSize = Math.min(96, Math.min(RP_W - 16, ph - 16));
@@ -553,6 +555,66 @@ public class XeltaTerminalScreen extends AbstractContainerScreen<XeltaTerminalMe
                 int sx = rx + 4 + i*(slotSize+4);
                 gfx.fill(sx, slotY, sx+slotSize, slotY+slotSize, C_PANEL2);
             }
+        }
+    }
+
+    /**
+     * Renders a slowly-rotating, translucent preview of a {@link ai.xelta.craft.item.SchematicItem}'s
+     * blocks inside the Preview panel — the same ghost-block look as
+     * {@link ai.xelta.craft.client.render.SchematicGhostRenderer}'s in-world preview, just drawn
+     * with the panel's own PoseStack instead of the level's, following the same manual-PoseStack
+     * pattern the item-icon fallback below already uses for non-image outputs.
+     */
+    private void renderSchematicGhostPreview(GuiGraphics gfx, ItemStack stack, int panelX, int panelY, int panelW, int panelH) {
+        java.util.List<ai.xelta.craft.schematic.LitematicaSchematicReader.Placement> placements =
+            ai.xelta.craft.item.SchematicItem.getPlacements(stack);
+        if (placements.isEmpty()) return;
+
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
+        for (var p : placements) {
+            minX = Math.min(minX, p.pos().getX()); maxX = Math.max(maxX, p.pos().getX());
+            minY = Math.min(minY, p.pos().getY()); maxY = Math.max(maxY, p.pos().getY());
+            minZ = Math.min(minZ, p.pos().getZ()); maxZ = Math.max(maxZ, p.pos().getZ());
+        }
+        float cx = (minX + maxX) / 2f, cy = (minY + maxY) / 2f, cz = (minZ + maxZ) / 2f;
+        float dim = Math.max(1, Math.max(maxX - minX, Math.max(maxY - minY, maxZ - minZ)) + 1);
+
+        int centerX = panelX + panelW / 2, centerY = panelY + panelH / 2;
+        float scale = Math.min(panelW, panelH) / (dim * 1.8f); // 1.8x fudge so the rotated box clears the panel edges
+        float yaw = (System.currentTimeMillis() / 30L) % 360; // slow auto-rotate so every side is visible over time
+
+        PoseStack poseStack = gfx.pose();
+        gfx.enableScissor(panelX, panelY, panelX + panelW, panelY + panelH);
+        poseStack.pushPose();
+        poseStack.translate(centerX, centerY, 150.0F);
+        poseStack.scale(scale, -scale, scale);
+        poseStack.mulPose(com.mojang.math.Axis.XP.rotationDegrees(-25f));
+        poseStack.mulPose(com.mojang.math.Axis.YP.rotationDegrees(yaw));
+
+        var bufferSource = gfx.bufferSource();
+        var blockRenderer = this.minecraft.getBlockRenderer();
+        int cap = Math.min(placements.size(), 4000); // perf guard — this redraws from scratch every frame
+
+        com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1f, 1f, 1f, 0.6f);
+        for (int i = 0; i < cap; i++) {
+            var p = placements.get(i);
+            poseStack.pushPose();
+            poseStack.translate(p.pos().getX() - cx, p.pos().getY() - cy, p.pos().getZ() - cz);
+            blockRenderer.renderSingleBlock(p.state(), poseStack, bufferSource, 0xF000F0,
+                net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY,
+                net.neoforged.neoforge.client.model.data.ModelData.EMPTY,
+                net.minecraft.client.renderer.RenderType.translucent());
+            poseStack.popPose();
+        }
+        gfx.flush();
+        com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+        poseStack.popPose();
+        gfx.disableScissor();
+
+        if (placements.size() > cap) {
+            String note = "(showing " + cap + "/" + placements.size() + " blocks)";
+            gfx.drawString(this.font, note, panelX + (panelW - this.font.width(note)) / 2, panelY + panelH - 10, 0xFF556677, false);
         }
     }
 

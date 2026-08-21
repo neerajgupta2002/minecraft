@@ -26,6 +26,7 @@ public class ModCreativeTabs {
                                 output.accept(ModItems.FILM_ROLL.get());
                                 output.accept(ModItems.AVATAR_SCROLL.get());
                                 output.accept(ModItems.MIXBOARD.get());
+                                output.accept(ModItems.SCHEMATIC.get());
                             })
                             .build()
             );

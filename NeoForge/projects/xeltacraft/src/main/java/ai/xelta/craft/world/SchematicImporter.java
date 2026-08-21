@@ -1,12 +1,14 @@
 package ai.xelta.craft.world;
 
 import ai.xelta.craft.XeltaCraftMod;
+import ai.xelta.craft.init.ModItems;
+import ai.xelta.craft.item.SchematicItem;
 import ai.xelta.craft.schematic.LitematicaSchematicReader;
 import ai.xelta.craft.schematic.SchematicPaths;
-import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,16 +16,16 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 
 /**
- * Reads a {@code .litematic} file from the {@link SchematicPaths} drop folder and queues its
- * blocks for placement via {@link SchematicBuildStateManager}. Parsing (NBT decode + palette
- * resolution) happens off the server thread; queueing happens back on it, same split as
- * {@link GeminiWorldBuilder#buildFromBlueprint}.
+ * Reads a {@code .litematic} file from the {@link SchematicPaths} drop folder and hands the
+ * player a {@link SchematicItem} loaded with its blocks — nothing is placed in the world until
+ * they right-click it somewhere. Parsing (NBT decode + palette resolution) happens off the
+ * server thread; giving the item happens back on it.
  */
 public final class SchematicImporter {
 
     private SchematicImporter() {}
 
-    public static void importFromFile(String filename, ServerLevel serverLevel, BlockPos origin, ServerPlayer player) {
+    public static void importFromFile(String filename, ServerLevel serverLevel, ServerPlayer player) {
         Path file;
         try {
             file = SchematicPaths.resolve(filename);
@@ -69,7 +71,13 @@ public final class SchematicImporter {
                             + "contents and mobs aren't imported yet."));
                 }
 
-                SchematicBuildStateManager.queueImport(serverLevel, origin, result.placements(), player, result.name());
+                ItemStack stack = SchematicItem.create(result.name(), result.placements(), ModItems.SCHEMATIC.get());
+                if (!player.getInventory().add(stack)) {
+                    player.drop(stack, false);
+                }
+                player.sendSystemMessage(Component.literal(
+                    "§aSchematic ready: \"" + result.name() + "\" (" + result.placements().size()
+                        + " blocks) — right-click a block to build it there."));
             }));
     }
 }

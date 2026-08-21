@@ -584,17 +584,25 @@ public class XeltaTerminalBlockEntity extends BlockEntity implements MenuProvide
                         (net.minecraft.server.level.ServerLevel) capturedLevel,
                         buildOrigin, player, finalBlockSize);
             })
-            .thenAccept(count -> {
+            .thenAccept(schematicStack -> {
                 capturedLevel.getServer().execute(() -> {
                     XeltaTerminalBlockEntity self = selfRef.get();
                     if (self == null || self.isRemoved()) return;
-                    String msg = count > 0
-                        ? "\u2705 Built " + count + " blocks! " + finalBlockSize + "x" + finalBlockSize
-                            + " at " + buildOrigin.toShortString()
-                        : "\u26a0 Build done but 0 blocks placed. Try a more specific prompt.";
-                    self.setStatus(GenerationStatus.DONE, msg);
-                    player.sendSystemMessage(Component.literal(
-                        "\u2705 Gemini built " + count + " blocks at " + buildOrigin.toShortString() + "!"));
+
+                    int count = schematicStack.isEmpty() ? 0
+                        : ai.xelta.craft.item.SchematicItem.getPlacements(schematicStack).size();
+
+                    if (count > 0) {
+                        self.itemHandler.setStackInSlot(SLOT_OUTPUT, schematicStack);
+                        String msg = "\u2705 Schematic ready! " + finalBlockSize + "x" + finalBlockSize
+                            + " (" + count + " blocks) \u2014 collect it and right-click a block to build it.";
+                        self.setStatus(GenerationStatus.DONE, msg);
+                        player.sendSystemMessage(Component.literal(
+                            "\u2705 Gemini generated a " + count + "-block schematic \u2014 collect it from the Terminal!"));
+                    } else {
+                        self.setStatus(GenerationStatus.DONE,
+                            "\u26a0 Build done but 0 blocks generated. Try a more specific prompt.");
+                    }
                     self.setChanged();
                     self.broadcastStatusToNearbyPlayers();
                 });
