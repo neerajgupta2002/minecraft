@@ -5,6 +5,8 @@ import ai.xelta.craft.api.XeltaApiClient;
 import ai.xelta.craft.api.auth.XeltaSessionManager;
 import ai.xelta.craft.blockentity.XeltaTerminalBlockEntity;
 import ai.xelta.craft.config.XeltaCraftConfig;
+import ai.xelta.craft.schematic.SchematicPaths;
+import ai.xelta.craft.world.SchematicImporter;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.brigadier.CommandDispatcher;
@@ -13,6 +15,7 @@ import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
@@ -74,6 +77,12 @@ public class XeltaCraftCommand {
                 .then(Commands.literal("rate")
                     .then(Commands.argument("stars", com.mojang.brigadier.arguments.IntegerArgumentType.integer(1, 5))
                         .executes(XeltaCraftCommand::rateBuild)))
+                .then(Commands.literal("schematics")
+                    .executes(XeltaCraftCommand::listSchematics))
+                .then(Commands.literal("importschematic")
+                    .then(Commands.argument("filename", StringArgumentType.greedyString())
+                        .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(SchematicPaths.listSchematicFiles(), builder))
+                        .executes(XeltaCraftCommand::importSchematic)))
                 .then(Commands.literal("help")
                     .executes(XeltaCraftCommand::showHelp))
                 .executes(XeltaCraftCommand::showHelp)
@@ -517,6 +526,48 @@ public class XeltaCraftCommand {
         return 1;
     }
 
+    // ─── /xeltacraft schematics ─────────────────────────────────────────────
+    // Lists .litematic files sitting in the isolated drop folder (created on first use).
+
+    private static int listSchematics(CommandContext<CommandSourceStack> ctx) {
+        var folder = SchematicPaths.getSchematicsFolder();
+        var files = SchematicPaths.listSchematicFiles();
+
+        if (files.isEmpty()) {
+            ctx.getSource().sendSuccess(
+                () -> Component.literal("§7No .litematic files yet. Drop them into: §b" + folder),
+                false
+            );
+            return 1;
+        }
+
+        ctx.getSource().sendSuccess(() -> Component.literal("§b" + files.size() + " schematic(s) in " + folder + ":"), false);
+        for (String f : files) {
+            ctx.getSource().sendSuccess(() -> Component.literal("§7  • §f" + f), false);
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal("§7Build one with: §e/xeltacraft importschematic <filename>"), false);
+        return 1;
+    }
+
+    // ─── /xeltacraft importschematic <filename> ────────────────────────────
+    // Builds a .litematic file from the isolated drop folder at the player's position.
+
+    private static int importSchematic(CommandContext<CommandSourceStack> ctx) {
+        if (!(ctx.getSource().getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) {
+            ctx.getSource().sendFailure(Component.literal("Must be run by a player."));
+            return 0;
+        }
+
+        String filename = StringArgumentType.getString(ctx, "filename").trim();
+        if (filename.isBlank()) {
+            ctx.getSource().sendFailure(Component.literal("❌ Filename cannot be blank."));
+            return 0;
+        }
+
+        SchematicImporter.importFromFile(filename, player.serverLevel(), player.blockPosition(), player);
+        return 1;
+    }
+
     // ─── /xeltacraft help ───────────────────────────────────────────────────
 
     private static int showHelp(CommandContext<CommandSourceStack> ctx) {
@@ -529,6 +580,8 @@ public class XeltaCraftCommand {
             §e/xeltacraft setvoice <id>§r     — Set Avatar TTS voice
             §e/xeltacraft status§r            — Show Terminal status nearby
             §e/xeltacraft reset§r             — Reset stuck Terminal to IDLE
+            §e/xeltacraft schematics§r        — List .litematic files ready to import
+            §e/xeltacraft importschematic <file>§r — Build a .litematic at your position
             §e/xeltacraft help§r              — Show this message
             §7
             §7Get your token: §bxelta.ai §7→ F12 → App → Local Storage → 'token'"""),

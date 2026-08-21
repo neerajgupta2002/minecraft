@@ -570,7 +570,7 @@ public class XeltaTerminalScreen extends AbstractContainerScreen<XeltaTerminalMe
     private static String referenceHeaderLabel(int service) {
         return switch (service) {
             case 0 -> "2. Reference (kept, new bg)";
-            case 4 -> "2. Reference (visual guide)";
+            case 4 -> "2. Reference (image or text file)";
             case 1, 2 -> "2. Reference (use Input slot)";
             default -> "2. Reference (not used)";
         };
@@ -778,10 +778,21 @@ public class XeltaTerminalScreen extends AbstractContainerScreen<XeltaTerminalMe
     }
 
     private void onUploadReferenceClicked() {
+        // Build mode's Gemini call can use a text file as extra prompt context, not just an
+        // image — Image-editing mode still needs a real image, so it keeps the narrower filter.
+        boolean allowTextFiles = selectedService == 4;
+        String[] exts = allowTextFiles
+            ? new String[]{"*.png", "*.jpg", "*.jpeg", "*.webp", "*.txt", "*.json", "*.md"}
+            : new String[]{"*.png", "*.jpg", "*.jpeg", "*.webp"};
         try (org.lwjgl.system.MemoryStack stack = org.lwjgl.system.MemoryStack.stackPush()) {
-            org.lwjgl.PointerBuffer filters = stack.mallocPointer(4);
-            filters.put(stack.UTF8("*.png")); filters.put(stack.UTF8("*.jpg")); filters.put(stack.UTF8("*.jpeg")); filters.put(stack.UTF8("*.webp")); filters.flip();
-            String path = TinyFileDialogs.tinyfd_openFileDialog("Select Reference Image", "", filters, "Image Files (*.png, *.jpg, *.jpeg, *.webp)", false);
+            org.lwjgl.PointerBuffer filters = stack.mallocPointer(exts.length);
+            for (String ext : exts) filters.put(stack.UTF8(ext));
+            filters.flip();
+            String title = allowTextFiles ? "Select Reference File" : "Select Reference Image";
+            String desc = allowTextFiles
+                ? "Image or Text Files (*.png, *.jpg, *.jpeg, *.webp, *.txt, *.json, *.md)"
+                : "Image Files (*.png, *.jpg, *.jpeg, *.webp)";
+            String path = TinyFileDialogs.tinyfd_openFileDialog(title, "", filters, desc, false);
             if (path != null && !path.isBlank()) { startReferenceUpload(path); }
         }
     }

@@ -152,15 +152,17 @@ public class GeminiArchitectClient {
     /**
      * Generates a Minecraft block blueprint using Gemini.
      *
-     * @param prompt        Natural language description of the structure.
-     * @param blockSize     Slide size (e.g. 5 from "5x5"). Controls footprint.
-     * @param refImageBytes Optional reference image bytes (base64-encoded in payload). Can be null.
-     * @param onProgress    Callback for progress strings (called from a virtual thread).
+     * @param prompt          Natural language description of the structure.
+     * @param blockSize       Slide size (e.g. 5 from "5x5"). Controls footprint.
+     * @param attachmentBytes Optional attachment: an image (sent as inline image data) or a text
+     *                        file (its contents are appended to the prompt as reference context).
+     *                        Can be null.
+     * @param onProgress      Callback for progress strings (called from a virtual thread).
      * @return CompletableFuture resolving to a raw JSON array string of block entries.
      */
     public CompletableFuture<String> generateBlueprint(
             String prompt, int blockSize,
-            byte[] refImageBytes,
+            byte[] attachmentBytes,
             java.util.function.Consumer<String> onProgress) {
 
         String apiKey = XeltaCraftConfig.resolveGeminiApiKey();
@@ -174,7 +176,7 @@ public class GeminiArchitectClient {
             .replace("{prompt}", prompt)
             .replace("{block_size}", String.valueOf(blockSize));
 
-        return attemptGenerate(model, apiKey, systemPrompt, refImageBytes, onProgress, 1, null);
+        return attemptGenerate(model, apiKey, systemPrompt, attachmentBytes, onProgress, 1, null);
     }
 
     /**
@@ -185,7 +187,7 @@ public class GeminiArchitectClient {
      * previously there was no retry at all here.
      */
     private CompletableFuture<String> attemptGenerate(
-            String model, String apiKey, String systemPrompt, byte[] refImageBytes,
+            String model, String apiKey, String systemPrompt, byte[] attachmentBytes,
             java.util.function.Consumer<String> onProgress, int attempt, String previousError) {
 
         onProgress.accept(attempt == 1
@@ -196,7 +198,7 @@ public class GeminiArchitectClient {
             : systemPrompt + "\n\nYour previous response could not be used: " + previousError
                 + "\nReturn ONLY the JSON object described above — no other text, no markdown fences.";
 
-        String requestBody = buildRequestBody(effectivePrompt, refImageBytes);
+        String requestBody = buildRequestBody(effectivePrompt, attachmentBytes);
         String url = GEMINI_BASE + model + ":generateContent?key=" + apiKey;
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -232,7 +234,7 @@ public class GeminiArchitectClient {
                     return CompletableFuture.<String>failedFuture(new GeminiApiException(
                         "Gemini did not return a valid blueprint after " + MAX_ATTEMPTS + " attempts (" + shapeError + ")"));
                 }
-                return attemptGenerate(model, apiKey, systemPrompt, refImageBytes, onProgress, attempt + 1, shapeError);
+                return attemptGenerate(model, apiKey, systemPrompt, attachmentBytes, onProgress, attempt + 1, shapeError);
             });
     }
 
@@ -265,7 +267,7 @@ public class GeminiArchitectClient {
     // =========================================================
     // Build Gemini REST API request body
     // =========================================================
-    private String buildRequestBody(String systemPrompt, byte[] refImageBytes) {
+    private String buildRequestBody(String systemPrompt, byte[] attachmentBytes) {
         // Gemini REST API format:
         // {
         //   "system_instruction": { "parts": [{ "text": "..." }] },
@@ -302,17 +304,31 @@ public class GeminiArchitectClient {
         textPart.addProperty("text", "Generate the Semantic Object Graph now. Output ONLY the JSON object.");
         contentParts.add(textPart);
 
-        // Optional reference image — the client only ever sends us raw bytes (no filename/extension
-        // travels over the network, see C2SGeneratePacket), so the actual format is sniffed from the
-        // file's magic bytes rather than hardcoded. This used to always declare "image/png" even for
-        // a picked .jpg/.webp file, mismatching Gemini's own decoding of the inline data.
-        if (refImageBytes != null && refImageBytes.length > 0) {
+        // Optional attachment — the client only ever sends us raw bytes (no filename/extension
+        // travels over the network, see C2SGeneratePacket), so the actual format is sniffed from
+        // the file's magic bytes rather than hardcoded. An image goes in as inline image data;
+        // a text file (txt/json/md, or anything else that decodes as valid UTF-8) is folded into
+        // the prompt as reference context instead, since Gemini's inline_data path here is only
+        // wired up for images. Anything that's neither is dropped rather than sent as mislabeled
+        // image bytes (which used to silently default to "image/png" and just fail server-side).
+        String imageMimeType = detectImageMimeType(attachmentBytes);
+        if (imageMimeType != null) {
             JsonObject imagePart = new JsonObject();
             JsonObject inlineData = new JsonObject();
-            inlineData.addProperty("mime_type", detectImageMimeType(refImageBytes));
-            inlineData.addProperty("data", Base64.getEncoder().encodeToString(refImageBytes));
+            inlineData.addProperty("mime_type", imageMimeType);
+            inlineData.addProperty("data", Base64.getEncoder().encodeToString(attachmentBytes));
             imagePart.add("inline_data", inlineData);
             contentParts.add(imagePart);
+        } else if (attachmentBytes != null && attachmentBytes.length > 0 && looksLikeText(attachmentBytes)) {
+            String text = new String(attachmentBytes, java.nio.charset.StandardCharsets.UTF_8);
+            if (text.length() > MAX_ATTACHMENT_TEXT_CHARS) {
+                text = text.substring(0, MAX_ATTACHMENT_TEXT_CHARS) + "\n...[truncated]";
+            }
+            JsonObject filePart = new JsonObject();
+            filePart.addProperty("text", "Reference file contents:\n```\n" + text + "\n```");
+            contentParts.add(filePart);
+        } else if (attachmentBytes != null && attachmentBytes.length > 0) {
+            XeltaCraftMod.LOGGER.warn("[Gemini] Attachment is neither a recognized image nor valid text — ignoring it ({} bytes)", attachmentBytes.length);
         }
 
         JsonObject userContent = new JsonObject();
@@ -462,8 +478,9 @@ public class GeminiArchitectClient {
         return schema;
     }
 
-    /** Sniffs the image format from its magic bytes. Falls back to PNG if unrecognized. */
+    /** Sniffs the image format from its magic bytes. Returns null if it isn't a recognized image. */
     private static String detectImageMimeType(byte[] bytes) {
+        if (bytes == null) return null;
         if (bytes.length >= 4 && (bytes[0] & 0xFF) == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) {
             return "image/png";
         }
@@ -474,7 +491,23 @@ public class GeminiArchitectClient {
                 && bytes[8] == 'W' && bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P') {
             return "image/webp";
         }
-        return "image/png";
+        return null;
+    }
+
+    /** Max characters of an attached text file's contents folded into the prompt. */
+    private static final int MAX_ATTACHMENT_TEXT_CHARS = 20_000;
+
+    /** True if the bytes decode cleanly as UTF-8 text (used to tell a text attachment from binary junk). */
+    private static boolean looksLikeText(byte[] bytes) {
+        java.nio.charset.CharsetDecoder decoder = java.nio.charset.StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
+        try {
+            decoder.decode(java.nio.ByteBuffer.wrap(bytes));
+            return true;
+        } catch (java.nio.charset.CharacterCodingException e) {
+            return false;
+        }
     }
 
     // =========================================================
