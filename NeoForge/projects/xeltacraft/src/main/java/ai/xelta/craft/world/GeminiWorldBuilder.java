@@ -109,7 +109,15 @@ public class GeminiWorldBuilder {
                     placements.add(new Placement(pos, state));
                 }
 
-                ItemStack stack = SchematicItem.create("AI build", placements, ModItems.SCHEMATIC.get());
+                ItemStack stack = SchematicItem.create("AI build", placements, List.of(), ModItems.SCHEMATIC.get());
+                if (!SchematicItem.hasSchematic(stack)) {
+                    XeltaCraftMod.LOGGER.warn("[GeminiBuilder] Blueprint with {} blocks was refused for being too large to carry", placements.size());
+                    if (player != null) {
+                        player.sendSystemMessage(Component.literal("§cThat blueprint was too large to carry as a schematic item — try a smaller footprint."));
+                    }
+                    result.complete(ItemStack.EMPTY);
+                    return;
+                }
                 XeltaCraftMod.LOGGER.info("[GeminiBuilder] Built schematic item with {} blocks", placements.size());
                 result.complete(stack);
             });

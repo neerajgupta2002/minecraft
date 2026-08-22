@@ -21,18 +21,23 @@ import java.util.List;
  * with a block-state palette (the same Name/Properties shape as vanilla structure NBT) and a
  * packed {@code long[]} of per-block palette indices (see {@link LitematicaBitArray}).
  *
- * Tile entity contents (chest inventories, sign text, ...) and entities are not restored —
- * only the block grid itself. Callers get a count of how many were skipped so that limitation
- * is visible rather than silent.
+ * Tile entity data (chest inventories, sign text, ...) is restored — each region's
+ * "TileEntities" list stores its own x/y/z/data verbatim (same shape a real {@link
+ * net.minecraft.world.level.block.entity.BlockEntity} saves), which are kept and normalized the
+ * same way block positions are, then reapplied by the caller once the corresponding block is
+ * placed. Entities (mobs, item frames, ...) are still not restored — callers get a count of how
+ * many were skipped so that limitation stays visible rather than silent.
  */
 public final class LitematicaSchematicReader {
 
     public record Placement(BlockPos pos, BlockState state) {}
 
+    public record TileEntityData(BlockPos pos, CompoundTag data) {}
+
     public record Result(
         String name,
         int totalBlocks,
-        int skippedTileEntities,
+        List<TileEntityData> tileEntities,
         int skippedEntities,
         List<Placement> placements) {}
 
@@ -45,14 +50,14 @@ public final class LitematicaSchematicReader {
         String name = metadata.contains("Name") ? metadata.getString("Name") : file.getFileName().toString();
 
         CompoundTag regions = root.getCompound("Regions");
-        int skippedTileEntities = 0;
         int skippedEntities = 0;
 
-        // First pass: collect every region's blocks in schematic-local space, tracking the
-        // overall minimum corner. The second pass shifts everything so the structure's own
-        // minimum corner sits at local (0,0,0) — the caller then offsets that onto wherever
-        // the player wants it built.
+        // First pass: collect every region's blocks (and tile entities) in schematic-local
+        // space, tracking the overall minimum corner. The second pass shifts everything so the
+        // structure's own minimum corner sits at local (0,0,0) — the caller then offsets that
+        // onto wherever the player wants it built.
         List<Placement> raw = new ArrayList<>();
+        List<TileEntityData> rawTileEntities = new ArrayList<>();
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
 
         for (String regionName : regions.getAllKeys()) {
@@ -97,7 +102,13 @@ public final class LitematicaSchematicReader {
             }
 
             if (region.contains("TileEntities", 9)) {
-                skippedTileEntities += region.getList("TileEntities", 10).size();
+                ListTag tileEntitiesTag = region.getList("TileEntities", 10);
+                for (int i = 0; i < tileEntitiesTag.size(); i++) {
+                    CompoundTag te = tileEntitiesTag.getCompound(i).copy();
+                    if (!te.contains("x") || !te.contains("y") || !te.contains("z")) continue;
+                    rawTileEntities.add(new TileEntityData(
+                        new BlockPos(te.getInt("x"), te.getInt("y"), te.getInt("z")), te));
+                }
             }
             if (region.contains("Entities", 9)) {
                 skippedEntities += region.getList("Entities", 10).size();
@@ -105,7 +116,7 @@ public final class LitematicaSchematicReader {
         }
 
         if (raw.isEmpty()) {
-            return new Result(name, 0, skippedTileEntities, skippedEntities, List.of());
+            return new Result(name, 0, List.of(), skippedEntities, List.of());
         }
 
         List<Placement> placements = new ArrayList<>(raw.size());
@@ -115,7 +126,14 @@ public final class LitematicaSchematicReader {
                 p.state()));
         }
 
-        return new Result(name, placements.size(), skippedTileEntities, skippedEntities, placements);
+        List<TileEntityData> tileEntities = new ArrayList<>(rawTileEntities.size());
+        for (TileEntityData te : rawTileEntities) {
+            tileEntities.add(new TileEntityData(
+                new BlockPos(te.pos().getX() - minX, te.pos().getY() - minY, te.pos().getZ() - minZ),
+                te.data()));
+        }
+
+        return new Result(name, placements.size(), tileEntities, skippedEntities, placements);
     }
 
     private static List<BlockState> readPalette(CompoundTag region) {

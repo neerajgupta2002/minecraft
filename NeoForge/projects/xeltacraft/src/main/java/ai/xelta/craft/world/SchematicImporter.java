@@ -64,14 +64,24 @@ public final class SchematicImporter {
                     return;
                 }
 
-                if (result.skippedTileEntities() > 0 || result.skippedEntities() > 0) {
+                if (!result.tileEntities().isEmpty()) {
                     player.sendSystemMessage(Component.literal(
-                        "§7Note: " + result.skippedTileEntities() + " container(s)/tile entities and "
-                            + result.skippedEntities() + " entitie(s) will be placed as empty blocks/skipped — "
-                            + "contents and mobs aren't imported yet."));
+                        "§7" + result.tileEntities().size() + " container(s)/tile entities will be restored "
+                            + "with their contents (chest items, sign text, ...)."));
+                }
+                if (result.skippedEntities() > 0) {
+                    player.sendSystemMessage(Component.literal(
+                        "§7Note: " + result.skippedEntities() + " entitie(s) (mobs, item frames, ...) will be skipped."));
                 }
 
-                ItemStack stack = SchematicItem.create(result.name(), result.placements(), ModItems.SCHEMATIC.get());
+                ItemStack stack = SchematicItem.create(result.name(), result.placements(), result.tileEntities(), ModItems.SCHEMATIC.get());
+                if (!SchematicItem.hasSchematic(stack)) {
+                    player.sendSystemMessage(Component.literal(
+                        "§c\"" + result.name() + "\" (" + result.placements().size() + " blocks) is too large "
+                            + "to carry as a schematic item right now — try a smaller structure."));
+                    return;
+                }
+
                 if (!player.getInventory().add(stack)) {
                     player.drop(stack, false);
                 }

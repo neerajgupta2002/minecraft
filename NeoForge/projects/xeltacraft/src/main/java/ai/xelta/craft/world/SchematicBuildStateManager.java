@@ -2,10 +2,12 @@ package ai.xelta.craft.world;
 
 import ai.xelta.craft.XeltaCraftMod;
 import ai.xelta.craft.schematic.LitematicaSchematicReader.Placement;
+import ai.xelta.craft.schematic.LitematicaSchematicReader.TileEntityData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
@@ -25,20 +27,24 @@ import java.util.Queue;
 @EventBusSubscriber(modid = XeltaCraftMod.MOD_ID, bus = EventBusSubscriber.Bus.GAME)
 public class SchematicBuildStateManager {
 
-    private static final int BLOCKS_PER_TICK = 200;
+    /** One block per tick (20/sec) — slow enough to actually watch it build, not just appear. */
+    private static final int BLOCKS_PER_TICK = 1;
 
     private static class ImportJob {
         final ServerLevel level;
         final BlockPos origin;
         final List<Placement> placements;
+        final List<TileEntityData> tileEntities;
         final ServerPlayer player;
         final String schematicName;
         int currentIndex = 0;
 
-        ImportJob(ServerLevel level, BlockPos origin, List<Placement> placements, ServerPlayer player, String schematicName) {
+        ImportJob(ServerLevel level, BlockPos origin, List<Placement> placements,
+                  List<TileEntityData> tileEntities, ServerPlayer player, String schematicName) {
             this.level = level;
             this.origin = origin;
             this.placements = placements;
+            this.tileEntities = tileEntities;
             this.player = player;
             this.schematicName = schematicName;
         }
@@ -47,8 +53,8 @@ public class SchematicBuildStateManager {
     private static final Queue<ImportJob> activeJobs = new LinkedList<>();
 
     public static void queueImport(ServerLevel level, BlockPos origin, List<Placement> placements,
-                                    ServerPlayer player, String schematicName) {
-        activeJobs.add(new ImportJob(level, origin, placements, player, schematicName));
+                                    List<TileEntityData> tileEntities, ServerPlayer player, String schematicName) {
+        activeJobs.add(new ImportJob(level, origin, placements, tileEntities, player, schematicName));
         if (player != null) {
             int estimatedSeconds = Math.max(1, placements.size() / (BLOCKS_PER_TICK * 20));
             player.sendSystemMessage(Component.literal(
@@ -78,13 +84,33 @@ public class SchematicBuildStateManager {
         }
 
         if (job.currentIndex >= job.placements.size()) {
-            XeltaCraftMod.LOGGER.info("[SchematicImport] Finished \"{}\" — {} blocks placed at {}",
-                job.schematicName, job.placements.size(), job.origin.toShortString());
+            int restoredTileEntities = applyTileEntities(job);
+            XeltaCraftMod.LOGGER.info("[SchematicImport] Finished \"{}\" — {} blocks placed at {} ({} tile entities restored)",
+                job.schematicName, job.placements.size(), job.origin.toShortString(), restoredTileEntities);
             if (job.player != null) {
                 job.player.sendSystemMessage(Component.literal(
                     "§aImport complete: \"" + job.schematicName + "\" (" + job.placements.size() + " blocks)."));
             }
             activeJobs.poll();
         }
+    }
+
+    /**
+     * Reapplies each tile entity's saved data (chest contents, sign text, ...) onto the block
+     * entity the placement loop above already created — done once at the end, after every block
+     * in the job is placed, so a container's own block is guaranteed to exist first.
+     */
+    private static int applyTileEntities(ImportJob job) {
+        int restored = 0;
+        for (TileEntityData te : job.tileEntities) {
+            BlockPos targetPos = job.origin.offset(te.pos());
+            BlockEntity blockEntity = job.level.getBlockEntity(targetPos);
+            if (blockEntity == null) continue;
+
+            blockEntity.loadWithComponents(te.data(), job.level.registryAccess());
+            blockEntity.setChanged();
+            restored++;
+        }
+        return restored;
     }
 }
