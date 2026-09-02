@@ -27,8 +27,18 @@ import java.util.Queue;
 @EventBusSubscriber(modid = XeltaCraftMod.MOD_ID, bus = EventBusSubscriber.Bus.GAME)
 public class SchematicBuildStateManager {
 
-    /** One block per tick (20/sec) — slow enough to actually watch it build, not just appear. */
-    private static final int BLOCKS_PER_TICK = 1;
+    /** Small imports place this slowly (20/sec) — slow enough to actually watch it build, not just appear. */
+    private static final int MIN_BLOCKS_PER_TICK = 1;
+
+    /** Never place more than this many blocks in one tick, however big the job — keeps a single tick cheap. */
+    private static final int MAX_BLOCKS_PER_TICK = 200;
+
+    /**
+     * Chunk size scales with job size so a large import still finishes in roughly this many
+     * ticks (~2 minutes) instead of crawling at {@link #MIN_BLOCKS_PER_TICK} the whole way —
+     * e.g. a 293,000-block import would otherwise take ~4 hours at 1 block/tick.
+     */
+    private static final int TARGET_TICKS = 20 * 120;
 
     private static class ImportJob {
         final ServerLevel level;
@@ -37,6 +47,7 @@ public class SchematicBuildStateManager {
         final List<TileEntityData> tileEntities;
         final ServerPlayer player;
         final String schematicName;
+        final int blocksPerTick;
         int currentIndex = 0;
 
         ImportJob(ServerLevel level, BlockPos origin, List<Placement> placements,
@@ -47,6 +58,8 @@ public class SchematicBuildStateManager {
             this.tileEntities = tileEntities;
             this.player = player;
             this.schematicName = schematicName;
+            int scaled = (placements.size() + TARGET_TICKS - 1) / TARGET_TICKS;
+            this.blocksPerTick = Math.max(MIN_BLOCKS_PER_TICK, Math.min(MAX_BLOCKS_PER_TICK, scaled));
         }
     }
 
@@ -54,12 +67,13 @@ public class SchematicBuildStateManager {
 
     public static void queueImport(ServerLevel level, BlockPos origin, List<Placement> placements,
                                     List<TileEntityData> tileEntities, ServerPlayer player, String schematicName) {
-        activeJobs.add(new ImportJob(level, origin, placements, tileEntities, player, schematicName));
+        ImportJob job = new ImportJob(level, origin, placements, tileEntities, player, schematicName);
+        activeJobs.add(job);
         if (player != null) {
-            int estimatedSeconds = Math.max(1, placements.size() / (BLOCKS_PER_TICK * 20));
+            int estimatedSeconds = Math.max(1, placements.size() / (job.blocksPerTick * 20));
             player.sendSystemMessage(Component.literal(
                 "§bImporting \"" + schematicName + "\" — " + placements.size()
-                    + " blocks, ~" + estimatedSeconds + "s."));
+                    + " blocks, ~" + estimatedSeconds + "s (" + job.blocksPerTick + "/tick)."));
         }
     }
 
@@ -70,7 +84,7 @@ public class SchematicBuildStateManager {
         ImportJob job = activeJobs.peek();
         int placedThisTick = 0;
 
-        while (placedThisTick < BLOCKS_PER_TICK && job.currentIndex < job.placements.size()) {
+        while (placedThisTick < job.blocksPerTick && job.currentIndex < job.placements.size()) {
             Placement placement = job.placements.get(job.currentIndex);
             job.currentIndex++;
             placedThisTick++;

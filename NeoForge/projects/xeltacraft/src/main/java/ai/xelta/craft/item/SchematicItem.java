@@ -4,6 +4,7 @@ import ai.xelta.craft.XeltaCraftMod;
 import ai.xelta.craft.schematic.LitematicaBitArray;
 import ai.xelta.craft.schematic.LitematicaSchematicReader.Placement;
 import ai.xelta.craft.schematic.LitematicaSchematicReader.TileEntityData;
+import ai.xelta.craft.schematic.SchematicPayloadStore;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -29,6 +30,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * SchematicItem — a build "loaded into a held item" instead of placed immediately, whether it
@@ -49,6 +51,8 @@ import java.util.Map;
 public class SchematicItem extends Item {
 
     private static final String TAG_NAME = "xelta_schem_name";
+    private static final String TAG_BLOCK_COUNT = "xelta_schem_block_count";
+    private static final String TAG_PAYLOAD_ID = "xelta_schem_payload_id";
     private static final String TAG_MIN = "xelta_schem_min";
     private static final String TAG_SIZE = "xelta_schem_size";
     private static final String TAG_PALETTE = "xelta_schem_palette";
@@ -56,13 +60,23 @@ public class SchematicItem extends Item {
     private static final String TAG_TILE_ENTITIES = "xelta_schem_tile_entities";
 
     /**
-     * Hard cap on the encoded NBT size, well under the 2 MiB ({@code 2097152} bytes) budget
-     * {@code ByteBufCodecs}' per-component NBT decoder enforces on the network. A real-world
-     * schematic that measured ~703,000 bytes via a raw {@code NbtIo.write} of this component
-     * still crashed the same way on the network, so whatever the actual wire size is, it's
-     * substantially larger than that raw measurement suggested (the exact overhead wasn't
-     * pinned down). This cap is set with a large safety margin below 703,000 for that reason,
-     * not just below 2,097,152 — anything over it is refused outright.
+     * Threshold, well under the 2 MiB ({@code 2097152} bytes) budget {@code ByteBufCodecs}' per-
+     * component NBT decoder enforces on the network, below which the block payload (palette +
+     * packed indices + tile entities) is kept inline on the item stack itself — same as before,
+     * so ghost preview and tooltips keep working with zero extra I/O for ordinary-sized builds.
+     * A real-world schematic that measured ~703,000 bytes via a raw {@code NbtIo.write} of this
+     * component still crashed the same way on the network, so whatever the actual wire size is,
+     * it's substantially larger than that raw measurement suggested (the exact overhead wasn't
+     * pinned down) — this threshold carries a large safety margin below 703,000 for that reason,
+     * not just below 2,097,152.
+     * <p>
+     * Above this size, the payload is written to disk via {@link SchematicPayloadStore} instead
+     * and the stack only carries a small reference (a UUID) — there's no upper bound on schematic
+     * size anymore, just a point past which the stack stops carrying the data itself. The one
+     * trade-off: {@code SchematicGhostRenderer}'s client-side preview and any other purely
+     * client-side reader can only resolve a disk-backed payload when the client and server share
+     * a game directory (singleplayer) — on a real dedicated server it has nothing to read, same
+     * as today's existing {@code MAX_GHOST_BLOCKS} cutoff already means for very large builds.
      */
     private static final int MAX_SAFE_NBT_BYTES = 250_000;
 
@@ -81,9 +95,11 @@ public class SchematicItem extends Item {
     }
 
     /**
-     * @return {@code true} if the schematic was encoded and set on the stack; {@code false} if
-     *         it was refused for being over {@link #MAX_SAFE_NBT_BYTES} (the stack is left with
-     *         no schematic data in that case — check {@link #hasSchematic}).
+     * @return {@code true} if the schematic was stored and referenced on the stack; {@code false}
+     *         only if a too-large payload couldn't be written to disk (the stack is left with no
+     *         schematic data in that case — check {@link #hasSchematic}). Unlike before, a large
+     *         block count on its own is no longer a reason to refuse — see the class-level note
+     *         on {@link #MAX_SAFE_NBT_BYTES}.
      */
     public static boolean setSchematic(ItemStack stack, String name, List<Placement> placements, List<TileEntityData> tileEntities) {
         CompoundTag root = new CompoundTag();
@@ -122,12 +138,13 @@ public class SchematicItem extends Item {
         int bits = LitematicaBitArray.bitsFor(palette.size());
         long[] packed = LitematicaBitArray.pack(bits, indices);
 
-        root.putIntArray(TAG_MIN, new int[]{minX, minY, minZ});
-        root.putIntArray(TAG_SIZE, new int[]{sizeX, sizeY, sizeZ});
+        CompoundTag payload = new CompoundTag();
+        payload.putIntArray(TAG_MIN, new int[]{minX, minY, minZ});
+        payload.putIntArray(TAG_SIZE, new int[]{sizeX, sizeY, sizeZ});
         ListTag paletteTag = new ListTag();
         for (BlockState state : palette) paletteTag.add(NbtUtils.writeBlockState(state));
-        root.put(TAG_PALETTE, paletteTag);
-        root.putLongArray(TAG_INDICES, packed);
+        payload.put(TAG_PALETTE, paletteTag);
+        payload.putLongArray(TAG_INDICES, packed);
 
         if (!tileEntities.isEmpty()) {
             ListTag tileEntitiesTag = new ListTag();
@@ -139,25 +156,40 @@ public class SchematicItem extends Item {
                 entry.put("data", te.data());
                 tileEntitiesTag.add(entry);
             }
-            root.put(TAG_TILE_ENTITIES, tileEntitiesTag);
+            payload.put(TAG_TILE_ENTITIES, tileEntitiesTag);
         }
 
         int encodedBytes;
         try {
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            NbtIo.write(root, new DataOutputStream(bos));
+            NbtIo.write(payload, new DataOutputStream(bos));
             encodedBytes = bos.size();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
 
-        if (encodedBytes > MAX_SAFE_NBT_BYTES) {
+        root.putInt(TAG_BLOCK_COUNT, placements.size());
+
+        if (encodedBytes <= MAX_SAFE_NBT_BYTES) {
+            root.merge(payload);
+            stack.set(DataComponents.CUSTOM_DATA, CustomData.of(root));
+            return true;
+        }
+
+        UUID payloadId = UUID.randomUUID();
+        try {
+            SchematicPayloadStore.save(payloadId, payload);
+        } catch (IOException e) {
             XeltaCraftMod.LOGGER.warn(
-                "[SchematicItem] Refusing to create '{}' ({} blocks, {} bytes encoded) — over the {}-byte safe cap.",
-                name, placements.size(), encodedBytes, MAX_SAFE_NBT_BYTES);
+                "[SchematicItem] Failed to write disk payload for '{}' ({} blocks, {} bytes encoded): {}",
+                name, placements.size(), encodedBytes, e.getMessage());
             return false;
         }
 
+        XeltaCraftMod.LOGGER.info(
+            "[SchematicItem] '{}' ({} blocks, {} bytes encoded) stored on disk as {} — over the {}-byte inline threshold.",
+            name, placements.size(), encodedBytes, payloadId, MAX_SAFE_NBT_BYTES);
+        root.putUUID(TAG_PAYLOAD_ID, payloadId);
         stack.set(DataComponents.CUSTOM_DATA, CustomData.of(root));
         return true;
     }
@@ -168,28 +200,42 @@ public class SchematicItem extends Item {
         return data.copyTag().getString(TAG_NAME);
     }
 
+    /**
+     * Resolves the compound that actually holds {@link #TAG_MIN}/{@link #TAG_SIZE}/
+     * {@link #TAG_PALETTE}/{@link #TAG_INDICES}/{@link #TAG_TILE_ENTITIES} — either {@code root}
+     * itself (payload was small enough to store inline) or the disk-backed payload {@code root}
+     * only references by {@link #TAG_PAYLOAD_ID}. Returns {@code null} if neither is present, or
+     * if a disk-backed payload can't be resolved from here (e.g. looked up client-side against a
+     * dedicated server, which has no access to the server's disk).
+     */
+    private static CompoundTag resolvePayload(CompoundTag root) {
+        if (root.contains(TAG_INDICES, 12)) return root; // 12 = LongArrayTag; stored inline
+        if (root.hasUUID(TAG_PAYLOAD_ID)) return SchematicPayloadStore.load(root.getUUID(TAG_PAYLOAD_ID));
+        return null;
+    }
+
     public static List<Placement> getPlacements(ItemStack stack) {
         CustomData data = stack.get(DataComponents.CUSTOM_DATA);
         if (data == null) return List.of();
 
-        CompoundTag root = data.copyTag();
-        if (!root.contains(TAG_INDICES, 12)) return List.of(); // 12 = LongArrayTag
+        CompoundTag payload = resolvePayload(data.copyTag());
+        if (payload == null) return List.of();
 
-        int[] min = root.getIntArray(TAG_MIN);
-        int[] size = root.getIntArray(TAG_SIZE);
+        int[] min = payload.getIntArray(TAG_MIN);
+        int[] size = payload.getIntArray(TAG_SIZE);
         if (min.length != 3 || size.length != 3) return List.of();
         int minX = min[0], minY = min[1], minZ = min[2];
         int sizeX = size[0], sizeY = size[1], sizeZ = size[2];
 
         var blockLookup = BuiltInRegistries.BLOCK.asLookup();
-        ListTag paletteTag = root.getList(TAG_PALETTE, 10);
+        ListTag paletteTag = payload.getList(TAG_PALETTE, 10);
         List<BlockState> palette = new ArrayList<>(paletteTag.size());
         for (int i = 0; i < paletteTag.size(); i++) {
             palette.add(NbtUtils.readBlockState(blockLookup, paletteTag.getCompound(i)));
         }
         if (palette.isEmpty()) return List.of();
 
-        long[] packed = root.getLongArray(TAG_INDICES);
+        long[] packed = payload.getLongArray(TAG_INDICES);
         int bits = LitematicaBitArray.bitsFor(palette.size());
         LitematicaBitArray bitArray = new LitematicaBitArray(bits, packed);
 
@@ -212,10 +258,10 @@ public class SchematicItem extends Item {
         CustomData data = stack.get(DataComponents.CUSTOM_DATA);
         if (data == null) return List.of();
 
-        CompoundTag root = data.copyTag();
-        if (!root.contains(TAG_TILE_ENTITIES, 9)) return List.of();
+        CompoundTag payload = resolvePayload(data.copyTag());
+        if (payload == null || !payload.contains(TAG_TILE_ENTITIES, 9)) return List.of();
 
-        ListTag tileEntitiesTag = root.getList(TAG_TILE_ENTITIES, 10);
+        ListTag tileEntitiesTag = payload.getList(TAG_TILE_ENTITIES, 10);
         List<TileEntityData> result = new ArrayList<>(tileEntitiesTag.size());
         for (int i = 0; i < tileEntitiesTag.size(); i++) {
             CompoundTag entry = tileEntitiesTag.getCompound(i);
@@ -226,7 +272,9 @@ public class SchematicItem extends Item {
     }
 
     public static boolean hasSchematic(ItemStack stack) {
-        return !getPlacements(stack).isEmpty();
+        CustomData data = stack.get(DataComponents.CUSTOM_DATA);
+        if (data == null) return false;
+        return data.copyTag().getInt(TAG_BLOCK_COUNT) > 0;
     }
 
     // =========================================================
@@ -270,7 +318,8 @@ public class SchematicItem extends Item {
                                  List<Component> tooltip, TooltipFlag flag) {
         super.appendHoverText(stack, context, tooltip, flag);
         String name = getSchematicName(stack);
-        int count = getPlacements(stack).size();
+        CustomData data = stack.get(DataComponents.CUSTOM_DATA);
+        int count = data != null ? data.copyTag().getInt(TAG_BLOCK_COUNT) : 0;
         if (count > 0) {
             tooltip.add(Component.literal("§7\"" + name + "\" — " + count + " blocks"));
             tooltip.add(Component.literal("§aRight-click a block to build it there"));
